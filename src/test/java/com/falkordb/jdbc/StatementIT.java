@@ -352,5 +352,72 @@ class StatementIT {
                         .isEqualTo((Object[]) results.getArray("value").getArray());
             }
         }
+
+        @Test
+        void getObjectTypedAsArrayAgreesWithGetArray() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN [1, 2] AS value")) {
+                results.next();
+
+                java.sql.Array typed = results.getObject("value", java.sql.Array.class);
+
+                assertThat(typed).isNotNull();
+                assertThat((Object[]) typed.getArray())
+                        .isEqualTo((Object[]) results.getArray("value").getArray());
+            }
+        }
+
+        @Test
+        void getObjectTypedAsArrayIsNullForANullColumn() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN null AS value")) {
+                results.next();
+
+                assertThat(results.getObject("value", java.sql.Array.class)).isNull();
+                assertThat(results.wasNull()).isTrue();
+            }
+        }
+
+        @Test
+        void closeOnCompletionWaitsForEveryDependentResultSet() throws SQLException {
+            statement.closeOnCompletion();
+
+            ResultSet rows = statement.executeQuery("RETURN 1 AS one");
+            ResultSet keys = statement.getGeneratedKeys();
+
+            rows.close();
+            assertThat(statement.isClosed())
+                    .as("the generated-keys result set is still open")
+                    .isFalse();
+
+            keys.close();
+            assertThat(statement.isClosed()).isTrue();
+        }
+
+        @Test
+        void closingTheStatementClosesARetainedResultSet() throws SQLException {
+            ResultSet retained = statement.executeQuery("RETURN 1 AS one");
+            statement.getMoreResults(Statement.KEEP_CURRENT_RESULT);
+
+            assertThat(retained.isClosed())
+                    .as("KEEP_CURRENT_RESULT leaves it open")
+                    .isFalse();
+
+            statement.close();
+
+            assertThat(retained.isClosed()).isTrue();
+        }
+
+        @Test
+        void aRetainedResultSetStillCountsTowardsCompletion() throws SQLException {
+            statement.closeOnCompletion();
+
+            ResultSet retained = statement.executeQuery("RETURN 1 AS one");
+            statement.getMoreResults(Statement.KEEP_CURRENT_RESULT);
+
+            assertThat(statement.isClosed()).isFalse();
+
+            retained.close();
+
+            assertThat(statement.isClosed()).isTrue();
+        }
     }
 }

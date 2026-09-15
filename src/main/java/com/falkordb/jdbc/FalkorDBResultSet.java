@@ -284,6 +284,11 @@ public final class FalkorDBResultSet extends FalkorDBWrapper implements ResultSe
 
     @Override
     public <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
+        // GraphValues has no java.sql.Array conversion, so ask for one explicitly here; otherwise a
+        // legitimate getObject(i, Array.class) would fail where getObject(i) and getArray(i) succeed.
+        if (type == java.sql.Array.class) {
+            return type.cast(getArray(columnIndex));
+        }
         return GraphValues.as(raw(columnIndex), type, zone);
     }
 

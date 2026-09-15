@@ -4,7 +4,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.falkordb.Graph;
 import com.falkordb.Statistics;
@@ -31,6 +35,17 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     final FalkorDBConnection connection;
 
     private FalkorDBResultSet resultSet;
+
+    /**
+     * Every result set this statement has produced that is still open, including ones no longer
+     * reachable through {@link #resultSet} — a result set retained by {@code
+     * getMoreResults(KEEP_CURRENT_RESULT)}, or one handed out by {@link #getGeneratedKeys()}. JDBC
+     * closes a {@code closeOnCompletion} statement only once *all* of its dependent result sets are
+     * closed, and {@link #close()} has to close whatever is left, so a single reference is not
+     * enough. Identity, not equality: two result sets are the same only if they are the same object.
+     */
+    private final Set<FalkorDBResultSet> dependents = Collections.newSetFromMap(new IdentityHashMap<>());
+
     private long updateCount = NO_UPDATE_COUNT;
     private int queryTimeoutSeconds;
     private int maxRows;
@@ -93,6 +108,9 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
      */
     final void run(CypherQuery query, Map<String, Object> parameters) throws SQLException {
         closeCurrentResultSet();
+        // Closing that result set can have closed this statement, if it was the last dependent of a
+        // closeOnCompletion statement; executing on it now would be executing on a closed statement.
+        checkOpen();
         resultSet = null;
         updateCount = NO_UPDATE_COUNT;
 
@@ -118,6 +136,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
                                 + maxRows + "; FalkorDB returns a whole response at once, so no rows were discarded",
                         SQLErrors.STATE_GENERAL));
             }
+            dependents.add(rows);
             resultSet = rows;
         }
     }
@@ -187,13 +206,15 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
 
     /**
      * Called by a result set this statement produced once it has been closed, so {@link
-     * #closeOnCompletion()} can take effect.
+     * #closeOnCompletion()} can take effect. The statement closes only when the last of its
+     * dependent result sets has gone, which is what JDBC specifies.
      */
     void resultSetClosed(FalkorDBResultSet source) throws SQLException {
+        dependents.remove(source);
         if (resultSet == source) {
             resultSet = null;
         }
-        if (closeOnCompletion && !closed) {
+        if (closeOnCompletion && !closed && dependents.isEmpty()) {
             close();
         }
     }
@@ -213,8 +234,10 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         }
         if (current != KEEP_CURRENT_RESULT) {
             closeCurrentResultSet();
+            checkOpen();
         }
-        // FalkorDB answers one statement with one response, so there is never a second result.
+        // A retained result set stays open and stays tracked in `dependents`, so it is still closed
+        // by close() and still counts towards closeOnCompletion.
         resultSet = null;
         updateCount = NO_UPDATE_COUNT;
         return false;
@@ -230,7 +253,9 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public ResultSet getGeneratedKeys() throws SQLException {
         checkOpen();
-        return new FalkorDBResultSet(java.util.List.of(), java.util.List.of(), this);
+        FalkorDBResultSet keys = new FalkorDBResultSet(List.of(), List.of(), this);
+        dependents.add(keys);
+        return keys;
     }
 
     // ---------------------------------------------------------------- configuration
@@ -433,7 +458,13 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         // Set before closing the result set: that call comes back through resultSetClosed(), and the
         // flag is what stops closeOnCompletion from recursing.
         closed = true;
-        closeCurrentResultSet();
+        // Close every result set still open, not just the current one: getMoreResults(
+        // KEEP_CURRENT_RESULT) and getGeneratedKeys() both hand out ones this field does not hold.
+        for (FalkorDBResultSet dependent : List.copyOf(dependents)) {
+            dependent.close();
+        }
+        dependents.clear();
+        resultSet = null;
         connection.forget(this);
     }
 

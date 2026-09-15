@@ -62,6 +62,7 @@ public record ConnectionSettings(
     /** Port used when the URL authority omits one. */
     public static final int DEFAULT_PORT = 6379;
 
+    private static final String JDBC_PREFIX = "jdbc:";
     private static final String SCHEME_PLAIN = "falkordb";
     private static final List<String> SCHEMES_TLS = List.of("falkordb+ssl", "falkordb+s", "falkordbs");
 
@@ -142,7 +143,23 @@ public record ConnectionSettings(
      * @return {@code true} if the URL targets FalkorDB
      */
     public static boolean acceptsUrl(String url) {
-        return url != null && url.regionMatches(true, 0, URL_PREFIX, 0, URL_PREFIX.length());
+        return schemeOf(url) != null;
+    }
+
+    /**
+     * Extracts the FalkorDB sub-protocol from a URL — {@code falkordb} or one of its TLS spellings —
+     * or {@code null} if the URL belongs to another driver.
+     */
+    private static String schemeOf(String url) {
+        if (url == null || !url.regionMatches(true, 0, JDBC_PREFIX, 0, JDBC_PREFIX.length())) {
+            return null;
+        }
+        int end = url.indexOf(':', JDBC_PREFIX.length());
+        if (end < 0) {
+            return null;
+        }
+        String scheme = url.substring(JDBC_PREFIX.length(), end).toLowerCase(Locale.ROOT);
+        return SCHEME_PLAIN.equals(scheme) || SCHEMES_TLS.contains(scheme) ? scheme : null;
     }
 
     /**
@@ -155,22 +172,32 @@ public record ConnectionSettings(
      *     an unparseable value for a known property
      */
     public static ConnectionSettings parse(String url, Properties properties) throws SQLException {
-        if (!acceptsUrl(url)) {
-            throw SQLErrors.invalidUrl(url, "expected a URL starting with \"" + URL_PREFIX + "\"");
+        String scheme = schemeOf(url);
+        if (scheme == null) {
+            String detail = url != null && url.regionMatches(true, 0, JDBC_PREFIX + SCHEME_PLAIN, 0, 13)
+                    ? "unsupported sub-protocol; expected one of " + supportedSchemes()
+                    : "expected a URL starting with \"" + URL_PREFIX + "\"";
+            throw SQLErrors.invalidUrl(url, detail);
         }
         URI uri = toUri(url);
 
-        boolean tlsScheme = isTlsScheme(uri.getScheme(), url);
+        boolean tlsScheme = SCHEMES_TLS.contains(scheme);
         Map<String, String> query = parseQuery(uri.getRawQuery(), url);
         Map<String, String> overrides = toMap(properties);
 
         String host = blankToNull(uri.getHost());
-        // A host such as "FalkorDB_server" with an underscore is rejected by URI's registry-based
-        // authority parsing, leaving getHost() null while the raw authority is still meaningful.
+        Integer declaredPort = uri.getPort() == -1 ? null : uri.getPort();
         if (host == null) {
-            host = hostFromRawAuthority(uri.getRawAuthority());
+            // A host such as "falkordb_server" with an underscore makes URI fall back to a
+            // registry-based authority, which leaves both getHost() and getPort() unset even though
+            // the raw authority still says exactly what was meant. A negative port lands here too.
+            String[] authority = splitAuthority(uri.getRawAuthority());
+            host = authority[0];
+            if (authority[1] != null) {
+                declaredPort = parsePort(authority[1], url);
+            }
         }
-        int port = uri.getPort() == -1 ? DEFAULT_PORT : uri.getPort();
+        int port = declaredPort == null ? DEFAULT_PORT : declaredPort;
         if (port < 1 || port > 65535) {
             throw SQLErrors.invalidUrl(url, "port out of range: " + port);
         }
@@ -215,25 +242,16 @@ public record ConnectionSettings(
         }
     }
 
-    private static boolean isTlsScheme(String scheme, String url) throws SQLException {
-        String normalized = scheme == null ? "" : scheme.toLowerCase(Locale.ROOT);
-        if (SCHEME_PLAIN.equals(normalized)) {
-            return false;
-        }
-        if (SCHEMES_TLS.contains(normalized)) {
-            return true;
-        }
-        throw SQLErrors.invalidUrl(url, "unsupported scheme \"" + scheme + "\"");
-    }
-
     /**
-     * Recovers the host from a raw authority when {@link URI#getHost()} declines to. Only the host
-     * component is extracted; user-info and port are handled by {@link URI} itself, which parses them
-     * even for a registry-based authority.
+     * Splits a raw authority into host and port, for the cases {@link URI#getHost()} declines to
+     * parse. User-info is discarded here; {@link URI} still reports it even for a registry-based
+     * authority.
+     *
+     * @return a two-element array of host and port text, either of which may be null
      */
-    private static String hostFromRawAuthority(String rawAuthority) {
+    private static String[] splitAuthority(String rawAuthority) {
         if (rawAuthority == null || rawAuthority.isEmpty()) {
-            return null;
+            return new String[] {null, null};
         }
         String authority = rawAuthority;
         int at = authority.lastIndexOf('@');
@@ -241,10 +259,25 @@ public record ConnectionSettings(
             authority = authority.substring(at + 1);
         }
         int colon = authority.lastIndexOf(':');
-        if (colon >= 0 && authority.indexOf(']') < colon) {
-            authority = authority.substring(0, colon);
+        if (colon < 0 || authority.indexOf(']') > colon) {
+            return new String[] {blankToNull(authority), null};
         }
-        return blankToNull(authority);
+        return new String[] {blankToNull(authority.substring(0, colon)), authority.substring(colon + 1)};
+    }
+
+    private static int parsePort(String text, String url) throws SQLException {
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException e) {
+            throw SQLErrors.invalidUrl(url, "port is not a number: \"" + text + "\"");
+        }
+    }
+
+    private static String supportedSchemes() {
+        List<String> all = new java.util.ArrayList<>();
+        all.add(SCHEME_PLAIN);
+        all.addAll(SCHEMES_TLS);
+        return String.join(", ", all);
     }
 
     private static String pathToGraph(String rawPath) {
@@ -252,6 +285,10 @@ public record ConnectionSettings(
             return null;
         }
         String path = rawPath.startsWith("/") ? rawPath.substring(1) : rawPath;
+        // A trailing slash is a URL convention, not part of the graph name.
+        while (path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
         return path.isEmpty() ? null : decode(path);
     }
 
@@ -286,7 +323,16 @@ public record ConnectionSettings(
             if (eq < 0) {
                 throw SQLErrors.invalidUrl(url, "query parameter \"" + decode(pair) + "\" has no value");
             }
-            result.put(decode(pair.substring(0, eq)), decode(pair.substring(eq + 1)));
+            String name = decode(pair.substring(0, eq));
+            if (KNOWN_PROPERTIES.stream().noneMatch(known -> known.name().equals(name))) {
+                throw SQLErrors.invalidUrl(
+                        url,
+                        "unknown query parameter \"" + name + "\"; supported parameters are "
+                                + KNOWN_PROPERTIES.stream()
+                                        .map(Known::name)
+                                        .collect(java.util.stream.Collectors.joining(", ")));
+            }
+            result.put(name, decode(pair.substring(eq + 1)));
         }
         return result;
     }

@@ -72,6 +72,32 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         } catch (RuntimeException e) {
             throw SQLErrors.translate("Failed to connect to FalkorDB at " + settings.host() + ":" + settings.port(), e);
         }
+        verifyReachable();
+    }
+
+    /**
+     * Proves the server is reachable before handing the connection back.
+     *
+     * <p>JFalkorDB's pool connects lazily, so without this an unreachable host would only surface at
+     * the first query. JDBC callers reasonably expect {@code DriverManager.getConnection} itself to
+     * fail, and connection pools rely on that to reject a bad endpoint at checkout time.
+     */
+    private void verifyReachable() throws SQLException {
+        try (redis.clients.jedis.Jedis probe = driver.getConnection()) {
+            probe.ping();
+        } catch (RuntimeException e) {
+            closeQuietly();
+            throw SQLErrors.connectionFailed(
+                    "Failed to connect to FalkorDB at " + settings.host() + ":" + settings.port(), e);
+        }
+    }
+
+    private void closeQuietly() {
+        try {
+            driver.close();
+        } catch (Exception ignored) {
+            // the connection attempt already failed; nothing useful to report from cleanup
+        }
     }
 
     private static com.falkordb.Driver build(ConnectionSettings settings) {

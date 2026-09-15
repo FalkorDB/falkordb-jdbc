@@ -549,6 +549,9 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
             row.add(type == FalkorType.INTEGER || type == FalkorType.DOUBLE ? 10L : null);
             rows.add(row);
         }
+        // JDBC requires getTypeInfo() to be ordered by how closely each type maps to its DATA_TYPE,
+        // which in practice means ascending DATA_TYPE.
+        rows.sort(java.util.Comparator.comparingLong(row -> (Long) row.get(1)));
         return result(columns, rows);
     }
 
@@ -1267,9 +1270,14 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return false;
     }
 
+    /**
+     * {@return {@code true}} FalkorDB exposes built-in procedures such as {@code db.labels()} and
+     * {@code db.indexes()}, invoked with Cypher's {@code CALL}. It does not support the JDBC escape
+     * call syntax, so {@code {call ...}} escapes are not translated.
+     */
     @Override
     public boolean supportsStoredProcedures() {
-        return false;
+        return true;
     }
 
     @Override

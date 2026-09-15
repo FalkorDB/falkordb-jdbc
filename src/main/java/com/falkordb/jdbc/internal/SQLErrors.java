@@ -59,6 +59,23 @@ public final class SQLErrors {
     private SQLErrors() {}
 
     /**
+     * Wraps a failure from the initial connection handshake. Everything that goes wrong while opening
+     * a connection is reported in SQLState class {@code 08} (connection exception), except an
+     * authentication rejection, which keeps its more specific {@code 28000}.
+     *
+     * @param message context describing the endpoint being reached
+     * @param cause the underlying failure
+     * @return the exception to throw
+     */
+    public static SQLException connectionFailed(String message, RuntimeException cause) {
+        SQLException translated = translate(message, cause);
+        if (translated instanceof SQLInvalidAuthorizationSpecException) {
+            return translated;
+        }
+        return new SQLNonTransientConnectionException(translated.getMessage(), STATE_CONNECTION_FAILURE, cause);
+    }
+
+    /**
      * Wraps a failure thrown while talking to FalkorDB in the most specific {@link SQLException}
      * subtype the message supports.
      *

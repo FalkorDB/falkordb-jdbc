@@ -377,6 +377,11 @@ public final class GraphValues {
     /**
      * Converts a value to a byte array, decoding a string as UTF-8.
      *
+     * <p>FalkorDB has no binary type, so {@link
+     * com.falkordb.jdbc.FalkorDBPreparedStatement#setBytes(int, byte[])} stores a byte array as a
+     * Cypher list of integers. A list of integers in byte range is therefore decoded back to bytes
+     * here, so that a {@code setBytes}/{@code getBytes} round trip returns what was written.
+     *
      * @param value the value to convert
      * @return the bytes, or {@code null} for a null value
      * @throws SQLException if the value has no byte representation
@@ -390,6 +395,21 @@ public final class GraphValues {
         }
         if (value instanceof String s) {
             return s.getBytes(StandardCharsets.UTF_8);
+        }
+        if (value instanceof List<?> list) {
+            byte[] bytes = new byte[list.size()];
+            for (int i = 0; i < bytes.length; i++) {
+                Object element = list.get(i);
+                if (!(element instanceof Number number) || element instanceof Double || element instanceof Float) {
+                    throw SQLErrors.cannotConvert(value, "byte[]");
+                }
+                long asLong = number.longValue();
+                if (asLong < Byte.MIN_VALUE || asLong > 255) {
+                    throw SQLErrors.cannotConvert(value, "byte[]");
+                }
+                bytes[i] = (byte) asLong;
+            }
+            return bytes;
         }
         throw SQLErrors.cannotConvert(value, "byte[]");
     }
@@ -598,6 +618,12 @@ public final class GraphValues {
         if (type == byte[].class) {
             return asBytes(value);
         }
+        if (type == float[].class) {
+            return asFloatArray(value);
+        }
+        if (type == double[].class) {
+            return asDoubleArray(value);
+        }
         if (type == LocalDate.class) {
             return asLocalDate(value);
         }
@@ -634,6 +660,42 @@ public final class GraphValues {
             return value instanceof Map<?, ?> map ? toStringKeyed(map) : null;
         }
         return null;
+    }
+
+    /**
+     * Unpacks a {@code vecf32} vector, or any list of numbers, into a primitive float array. This is
+     * how a vector column is most naturally consumed, so {@code getObject(i, float[].class)} is the
+     * driver's idiomatic accessor for one.
+     *
+     * @param value the value to convert
+     * @return the components, or {@code null} if the value is not a list of numbers
+     */
+    private static float[] asFloatArray(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return null;
+        }
+        float[] components = new float[list.size()];
+        for (int i = 0; i < components.length; i++) {
+            if (!(list.get(i) instanceof Number number)) {
+                return null;
+            }
+            components[i] = number.floatValue();
+        }
+        return components;
+    }
+
+    private static double[] asDoubleArray(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return null;
+        }
+        double[] components = new double[list.size()];
+        for (int i = 0; i < components.length; i++) {
+            if (!(list.get(i) instanceof Number number)) {
+                return null;
+            }
+            components[i] = number.doubleValue();
+        }
+        return components;
     }
 
     private static Duration asDuration(Object value) throws SQLException {

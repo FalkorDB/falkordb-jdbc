@@ -247,11 +247,12 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
 
     /**
      * Records a row limit. FalkorDB materialises a whole response before the driver sees it, so the
-     * limit cannot be enforced without discarding data the server already produced; exceeding it
-     * raises a {@link SQLWarning} on the result set instead. Use a Cypher {@code LIMIT} clause to
-     * actually bound a result.
+     * limit cannot be enforced without discarding data the server already produced. Setting a limit
+     * therefore raises a {@link SQLWarning} on this statement immediately — while the caller can still
+     * react — and a second warning on any result set that actually exceeds it. Use a Cypher {@code
+     * LIMIT} clause to genuinely bound a result.
      *
-     * @param max the requested maximum
+     * @param max the requested maximum, or {@code 0} for no limit
      * @throws SQLException if the statement is closed or {@code max} is negative
      */
     @Override
@@ -261,6 +262,21 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
             throw new SQLException("Max rows must not be negative", SQLErrors.STATE_INVALID_PARAMETER);
         }
         maxRows = max;
+        if (max > 0) {
+            addWarning(new SQLWarning(
+                    "maxRows of " + max + " cannot be enforced: FalkorDB returns a whole response at once, so the "
+                            + "driver would have to discard rows the server already produced. Use a Cypher LIMIT "
+                            + "clause instead",
+                    SQLErrors.STATE_GENERAL));
+        }
+    }
+
+    private void addWarning(SQLWarning warning) {
+        if (warnings == null) {
+            warnings = warning;
+        } else {
+            warnings.setNextWarning(warning);
+        }
     }
 
     @Override

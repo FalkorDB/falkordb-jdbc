@@ -17,17 +17,21 @@ import com.falkordb.jdbc.internal.SQLErrors;
  *
  * <p>The element type is inferred from the list's contents: a list whose elements all share one
  * FalkorDB type reports that type, and a mixed list reports {@link java.sql.Types#OTHER}, since
- * Cypher lists are heterogeneous by nature.
+ * Cypher lists are heterogeneous by nature. A {@code vecf32} vector, whose components JFalkorDB
+ * decodes to {@link Float}, reports {@link java.sql.Types#REAL} to distinguish it from a list of
+ * ordinary Cypher doubles.
  */
 public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Array {
 
     private final List<Object> elements;
     private final FalkorType elementType;
+    private final boolean vector;
     private boolean freed;
 
     FalkorDBArray(Collection<?> elements) {
         this.elements = new ArrayList<>(elements);
         this.elementType = inferElementType(this.elements);
+        this.vector = FalkorType.of(this.elements) == FalkorType.VECTORF32;
     }
 
     private static FalkorType inferElementType(List<Object> elements) {
@@ -49,13 +53,13 @@ public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Arr
     @Override
     public String getBaseTypeName() throws SQLException {
         checkValid();
-        return elementType.typeName();
+        return vector ? "FLOAT32" : elementType.typeName();
     }
 
     @Override
     public int getBaseType() throws SQLException {
         checkValid();
-        return elementType.sqlType();
+        return vector ? java.sql.Types.REAL : elementType.sqlType();
     }
 
     @Override

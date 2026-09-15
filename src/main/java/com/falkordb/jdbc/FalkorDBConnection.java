@@ -63,7 +63,7 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
     private GraphContextGenerator graph;
     private String graphName;
     private boolean readOnly;
-    private boolean closed;
+    private volatile boolean closed;
     private SQLWarning warnings;
 
     FalkorDBConnection(ConnectionSettings settings) throws SQLException {
@@ -579,6 +579,11 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         // registered between the two and escape being closed.
         Collection<Statement> open;
         synchronized (statementsLock) {
+            // Re-check under the lock: two callers can pass the unlocked check above, and closing
+            // the graph context and the pool twice is not safe.
+            if (closed) {
+                return;
+            }
             closed = true;
             open = List.copyOf(statements);
             statements.clear();

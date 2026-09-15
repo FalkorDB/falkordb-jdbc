@@ -449,5 +449,65 @@ class StatementIT {
             assertThat(statement.executeUpdate("CREATE (:Kept)", Statement.NO_GENERATED_KEYS))
                     .isPositive();
         }
+
+        @Test
+        void getMoreResultsSucceedsWhenItCompletesTheStatement() throws SQLException {
+            // Closing the last dependent under closeOnCompletion closes the statement. That is the
+            // feature working, so getMoreResults must return false rather than report a failure.
+            statement.closeOnCompletion();
+            statement.execute("RETURN 1 AS one");
+
+            assertThat(statement.getMoreResults(Statement.CLOSE_ALL_RESULTS)).isFalse();
+            assertThat(statement.isClosed()).isTrue();
+        }
+
+        @Test
+        void getMoreResultsClosingTheCurrentResultAlsoCompletesTheStatement() throws SQLException {
+            statement.closeOnCompletion();
+            statement.execute("RETURN 1 AS one");
+
+            assertThat(statement.getMoreResults(Statement.CLOSE_CURRENT_RESULT)).isFalse();
+            assertThat(statement.isClosed()).isTrue();
+        }
+
+        @Test
+        void closingAConnectionTwiceIsHarmless() throws SQLException {
+            Connection extra = TestServer.connect("closeRace");
+            extra.close();
+            extra.close();
+
+            assertThat(extra.isClosed()).isTrue();
+        }
+
+        @Test
+        void concurrentClosesReleaseTheConnectionExactlyOnce() throws Exception {
+            Connection extra = TestServer.connect("closeRace");
+            int racers = 8;
+            java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(racers);
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            List<Throwable> failures = java.util.Collections.synchronizedList(new ArrayList<>());
+            List<Thread> threads = new ArrayList<>();
+            for (int i = 0; i < racers; i++) {
+                Thread thread = new Thread(() -> {
+                    try {
+                        ready.countDown();
+                        go.await();
+                        extra.close();
+                    } catch (Throwable t) {
+                        failures.add(t);
+                    }
+                });
+                thread.start();
+                threads.add(thread);
+            }
+            ready.await();
+            go.countDown();
+            for (Thread thread : threads) {
+                thread.join();
+            }
+
+            assertThat(failures).isEmpty();
+            assertThat(extra.isClosed()).isTrue();
+        }
     }
 }

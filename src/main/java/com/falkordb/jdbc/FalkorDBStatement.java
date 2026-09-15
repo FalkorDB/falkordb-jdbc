@@ -237,11 +237,12 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
             for (FalkorDBResultSet dependent : List.copyOf(dependents)) {
                 dependent.close();
             }
-            checkOpen();
         } else if (current == CLOSE_CURRENT_RESULT) {
             closeCurrentResultSet();
-            checkOpen();
         }
+        // Deliberately not re-checking that the statement is still open: under closeOnCompletion,
+        // closing the last dependent above closes this statement, and that is a success, not a
+        // failure to report. close() leaves it closed with its dependents cleared either way.
         // A retained result set stays open and stays tracked in `dependents`, so it is still closed
         // by close() and still counts towards closeOnCompletion.
         resultSet = null;

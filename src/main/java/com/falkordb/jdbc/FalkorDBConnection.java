@@ -52,8 +52,11 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
 
     private final ConnectionSettings settings;
     private final com.falkordb.Driver driver;
-    private final Set<Statement> statements =
-            Collections.newSetFromMap(Collections.synchronizedMap(new IdentityHashMap<>()));
+    // Guarded by statementsLock. Collections.newSetFromMap(synchronizedMap(...)) would not do: the
+    // set's internal mutex is the wrapped map, so synchronizing on the set itself would guard
+    // iteration with a different monitor than the one add/remove take.
+    private final Set<Statement> statements = Collections.newSetFromMap(new IdentityHashMap<>());
+    private final Object statementsLock = new Object();
     private final Properties clientInfo = new Properties();
 
     private GraphContextGenerator graph;
@@ -194,12 +197,16 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
     }
 
     private <T extends Statement> T track(T statement) {
-        statements.add(statement);
+        synchronized (statementsLock) {
+            statements.add(statement);
+        }
         return statement;
     }
 
     void forget(Statement statement) {
-        statements.remove(statement);
+        synchronized (statementsLock) {
+            statements.remove(statement);
+        }
     }
 
     private void requireForwardOnlyReadOnly(int resultSetType, int resultSetConcurrency) throws SQLException {
@@ -494,27 +501,43 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         }
         closed = true;
         // Copy first: Statement.close() calls back into forget(), which mutates the live set.
-        for (Statement statement : List.copyOf(openStatements())) {
+        for (Statement statement : openStatements()) {
             try {
                 statement.close();
             } catch (SQLException e) {
                 warnings = merge(warnings, new SQLWarning("Failed to close a statement", SQLErrors.STATE_GENERAL, e));
             }
         }
-        statements.clear();
+        synchronized (statementsLock) {
+            statements.clear();
+        }
+
+        // Always release the pool, even if closing the graph context fails, and report the first
+        // failure with any later one attached rather than letting the last one win.
+        SQLException failure = null;
         try {
             graph.close();
-        } finally {
-            try {
-                driver.close();
-            } catch (IOException | RuntimeException e) {
-                throw new SQLException("Failed to close the FalkorDB connection pool", SQLErrors.STATE_GENERAL, e);
+        } catch (RuntimeException e) {
+            failure = new SQLException("Failed to close the FalkorDB graph context", SQLErrors.STATE_GENERAL, e);
+        }
+        try {
+            driver.close();
+        } catch (IOException | RuntimeException e) {
+            SQLException poolFailure =
+                    new SQLException("Failed to close the FalkorDB connection pool", SQLErrors.STATE_GENERAL, e);
+            if (failure == null) {
+                failure = poolFailure;
+            } else {
+                failure.setNextException(poolFailure);
             }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
     private Collection<Statement> openStatements() {
-        synchronized (statements) {
+        synchronized (statementsLock) {
             return List.copyOf(statements);
         }
     }
@@ -593,7 +616,9 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         }
         long millis = settings.queryTimeoutMillis().getAsLong();
         // Round up, so a sub-second setting becomes a one-second limit rather than "no limit".
-        long seconds = (millis + 999L) / 1000L;
+        // Computed as a quotient plus a remainder test; millis + 999 would overflow near Long.MAX_VALUE
+        // and wrap to a negative "no limit".
+        long seconds = millis / 1000L + (millis % 1000L == 0L ? 0L : 1L);
         return (int) Math.min(seconds, Integer.MAX_VALUE);
     }
 

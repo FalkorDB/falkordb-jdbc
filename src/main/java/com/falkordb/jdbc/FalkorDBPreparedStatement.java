@@ -294,7 +294,22 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
      * mapped onto the nearest thing it does have, and anything with no representation at all is
      * rejected rather than silently stringified.
      */
+    private static SQLException nonFinite(Number value) {
+        return new SQLException(
+                "FalkorDB cannot represent the non-finite value " + value + " as a parameter",
+                SQLErrors.STATE_INVALID_PARAMETER);
+    }
+
     private Object encode(Object value) throws SQLException {
+        // FalkorDB has no literal for NaN or an infinity, and JFalkorDB rejects them when it builds
+        // the parameter prefix. Fail here, while the caller can still see which value was at fault,
+        // rather than at execute time.
+        if (value instanceof Float f && !Float.isFinite(f)) {
+            throw nonFinite(f);
+        }
+        if (value instanceof Double d && !Double.isFinite(d)) {
+            throw nonFinite(d);
+        }
         if (value == null
                 || value instanceof String
                 || value instanceof Boolean
@@ -310,7 +325,11 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         }
         // FalkorDB stores every decimal as a 64-bit double, so that is the only faithful target.
         if (value instanceof BigDecimal decimal) {
-            return decimal.doubleValue();
+            double converted = decimal.doubleValue();
+            if (!Double.isFinite(converted)) {
+                throw nonFinite(decimal);
+            }
+            return converted;
         }
         if (value instanceof Date date) {
             return date.toLocalDate().toString();

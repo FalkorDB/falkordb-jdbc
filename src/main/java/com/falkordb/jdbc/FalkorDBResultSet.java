@@ -123,9 +123,21 @@ public final class FalkorDBResultSet extends FalkorDBWrapper implements ResultSe
         return cursor < rows.size();
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>If the creating statement asked to be closed on completion, closing its last open result set
+     * closes the statement too.
+     */
     @Override
-    public void close() {
+    public void close() throws SQLException {
+        if (closed) {
+            return;
+        }
         closed = true;
+        if (statement != null) {
+            statement.resultSetClosed(this);
+        }
     }
 
     @Override
@@ -248,9 +260,21 @@ public final class FalkorDBResultSet extends FalkorDBWrapper implements ResultSe
         return value;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Returns the default Java type for the column's SQL type, so a Cypher list or vector - whose
+     * SQL type is {@link java.sql.Types#ARRAY} - arrives as a {@link java.sql.Array} rather than the
+     * client's raw {@link List}, and agrees with {@link #getArray(int)} for the same column. Maps and
+     * graph entities have no JDBC counterpart and are returned as they come from the client.
+     */
     @Override
     public Object getObject(int columnIndex) throws SQLException {
-        return raw(columnIndex);
+        Object value = raw(columnIndex);
+        if (value instanceof Collection<?> collection) {
+            return new FalkorDBArray(collection);
+        }
+        return value;
     }
 
     @Override

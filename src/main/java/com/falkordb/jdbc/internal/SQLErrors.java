@@ -7,6 +7,7 @@ import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLTimeoutException;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 import redis.clients.jedis.exceptions.JedisConnectionException;
 
@@ -141,14 +142,34 @@ public final class SQLErrors {
     /**
      * Builds the exception reported for a URL this driver cannot make sense of.
      *
+     * <p>The URL is echoed back so the caller can see what was rejected, but any credentials in it
+     * are redacted first: a rejected URL routinely ends up in an exception message, a log file or a
+     * bug report, and a password must not travel with it.
+     *
      * @param url the offending URL
      * @param reason why it was rejected
      * @return the exception to throw
      */
     public static SQLException invalidUrl(String url, String reason) {
         return new SQLNonTransientConnectionException(
-                "Invalid FalkorDB JDBC URL " + (url == null ? "null" : '"' + url + '"') + ": " + reason,
+                "Invalid FalkorDB JDBC URL " + (url == null ? "null" : '"' + redact(url) + '"') + ": " + reason,
                 STATE_CONNECTION_REJECTED);
+    }
+
+    private static final Pattern USERINFO_PASSWORD = Pattern.compile("(//[^/?#@]*:)([^/?#@]*)(@)");
+    private static final Pattern PASSWORD_PARAM =
+            Pattern.compile("(?i)([?&]password=)([^&#]*)"); // NOSONAR - matching, not validating
+
+    /**
+     * Replaces the password in a URL's userinfo and in any {@code password} query parameter with
+     * {@code ***}, leaving the rest of the URL readable.
+     *
+     * @param url the URL to sanitise
+     * @return the URL with credentials masked
+     */
+    public static String redact(String url) {
+        String redacted = USERINFO_PASSWORD.matcher(url).replaceAll("$1***$3");
+        return PASSWORD_PARAM.matcher(redacted).replaceAll("$1***");
     }
 
     /**

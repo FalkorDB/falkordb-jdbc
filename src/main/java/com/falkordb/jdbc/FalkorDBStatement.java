@@ -185,6 +185,19 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         return updateCount;
     }
 
+    /**
+     * Called by a result set this statement produced once it has been closed, so {@link
+     * #closeOnCompletion()} can take effect.
+     */
+    void resultSetClosed(FalkorDBResultSet source) throws SQLException {
+        if (resultSet == source) {
+            resultSet = null;
+        }
+        if (closeOnCompletion && !closed) {
+            close();
+        }
+    }
+
     @Override
     public boolean getMoreResults() throws SQLException {
         return getMoreResults(CLOSE_CURRENT_RESULT);
@@ -193,6 +206,11 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public boolean getMoreResults(int current) throws SQLException {
         checkOpen();
+        if (current != CLOSE_CURRENT_RESULT && current != KEEP_CURRENT_RESULT && current != CLOSE_ALL_RESULTS) {
+            throw new SQLException(
+                    "Expected CLOSE_CURRENT_RESULT, KEEP_CURRENT_RESULT or CLOSE_ALL_RESULTS, but was " + current,
+                    SQLErrors.STATE_INVALID_PARAMETER);
+        }
         if (current != KEEP_CURRENT_RESULT) {
             closeCurrentResultSet();
         }
@@ -408,10 +426,12 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     // ---------------------------------------------------------------- lifecycle
 
     @Override
-    public void close() {
+    public void close() throws SQLException {
         if (closed) {
             return;
         }
+        // Set before closing the result set: that call comes back through resultSetClosed(), and the
+        // flag is what stops closeOnCompletion from recursing.
         closed = true;
         closeCurrentResultSet();
         connection.forget(this);
@@ -422,7 +442,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         return closed;
     }
 
-    private void closeCurrentResultSet() {
+    private void closeCurrentResultSet() throws SQLException {
         if (resultSet != null) {
             resultSet.close();
         }

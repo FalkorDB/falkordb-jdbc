@@ -165,11 +165,18 @@ public record ConnectionSettings(
     /**
      * Parses a JDBC URL and merges it with the supplied connection properties.
      *
+     * <p>An unrecognised <em>query parameter</em> is rejected, because a URL is typed by a person and
+     * a silently ignored typo such as {@code passwrod=} would connect with no password at all. An
+     * unrecognised <em>property</em> is ignored, because connection pools, BI tools and application
+     * servers routinely add keys of their own to the {@link Properties} they pass down, and rejecting
+     * those would break them. The two are deliberately different; see the README.
+     *
      * @param url the JDBC URL
-     * @param properties connection properties; may be {@code null}
+     * @param properties connection properties; may be {@code null}. Keys this driver does not know
+     *     are ignored
      * @return the resolved settings
-     * @throws SQLException if the URL is not a FalkorDB URL, is malformed, names no graph, or carries
-     *     an unparseable value for a known property
+     * @throws SQLException if the URL is not a FalkorDB URL, is malformed, names no graph, carries an
+     *     unknown query parameter, or carries an unparseable value for a known property
      */
     public static ConnectionSettings parse(String url, Properties properties) throws SQLException {
         String scheme = schemeOf(url);

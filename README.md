@@ -131,8 +131,12 @@ TLS is available either as a scheme — `jdbc:falkordb+ssl://`, `jdbc:falkordb+s
 ### Connection properties
 
 Every property below can be given as a URL query parameter or in the `Properties` passed to
-`DriverManager.getConnection`. An unrecognised property is rejected rather than ignored, so a typo
-fails loudly.
+`DriverManager.getConnection`.
+
+An unrecognised **query parameter** is rejected, so a typo in a URL fails loudly instead of quietly
+changing what you connect as — `?passwrod=secret` would otherwise connect with no password at all.
+An unrecognised **property** is ignored, because pools, BI tools and application servers routinely
+add keys of their own to the `Properties` they pass down.
 
 | Property | Default | Meaning |
 | --- | --- | --- |

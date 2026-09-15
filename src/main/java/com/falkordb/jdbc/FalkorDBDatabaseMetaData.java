@@ -594,14 +594,30 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     /**
      * Runs an introspection query whose procedure may not exist on every FalkorDB build, yielding no
-     * rows instead of failing the metadata call.
+     * rows if it is genuinely absent.
+     *
+     * <p>Only a missing procedure is swallowed. A dropped connection or a rejected credential must
+     * not be reported as "this graph has no indexes" - that would leave tooling unable to tell an
+     * empty schema from a broken connection.
      */
-    private Iterable<Record> queryOrEmpty(String cypher) {
+    private Iterable<Record> queryOrEmpty(String cypher) throws SQLException {
         try {
             return connection.graph().readOnlyQuery(cypher);
         } catch (RuntimeException e) {
-            return List.of();
+            if (isMissingProcedure(e)) {
+                return List.of();
+            }
+            throw SQLErrors.translate("Failed to read FalkorDB metadata with \"" + cypher + "\"", e);
         }
+    }
+
+    private static boolean isMissingProcedure(RuntimeException e) {
+        String message = e.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String text = message.toLowerCase(java.util.Locale.ROOT);
+        return text.contains("unknown procedure") || text.contains("procedure not found");
     }
 
     private static String asString(Object value) {
@@ -938,9 +954,14 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return String.join(",", "id", "labels", "type", "properties", "keys", "startNode", "endNode");
     }
 
+    /**
+     * {@return FalkorDB's temporal functions} Note that FalkorDB provides {@code localtime()} and
+     * {@code localdatetime()}, not Cypher's zoned {@code time()} and {@code datetime()}; tools
+     * generate queries from this list, so advertising the latter would produce invalid Cypher.
+     */
     @Override
     public String getTimeDateFunctions() {
-        return String.join(",", "date", "datetime", "duration", "localtime", "time", "timestamp");
+        return String.join(",", "date", "duration", "localdatetime", "localtime", "timestamp");
     }
 
     @Override
@@ -1271,13 +1292,15 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     }
 
     /**
-     * {@return {@code true}} FalkorDB exposes built-in procedures such as {@code db.labels()} and
-     * {@code db.indexes()}, invoked with Cypher's {@code CALL}. It does not support the JDBC escape
-     * call syntax, so {@code {call ...}} escapes are not translated.
+     * {@return {@code false}} This method asks specifically about the JDBC stored-procedure escape
+     * syntax, {@code {call ...}}, which the driver does not translate - {@link
+     * java.sql.Connection#prepareCall} throws. FalkorDB's own procedures are perfectly usable
+     * through Cypher's {@code CALL} on an ordinary {@link java.sql.Statement}, and are listed by
+     * {@link #getProcedures}, but that is a different thing from what JDBC is asking here.
      */
     @Override
     public boolean supportsStoredProcedures() {
-        return true;
+        return false;
     }
 
     @Override

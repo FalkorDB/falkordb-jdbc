@@ -271,7 +271,10 @@ public final class GraphValues {
             result = b ? 1L : 0L;
         } else if (value instanceof Double || value instanceof Float) {
             double d = ((Number) value).doubleValue();
-            if (Double.isNaN(d) || Double.isInfinite(d) || d != Math.rint(d)) {
+            // A cast saturates at Long.MIN_VALUE/MAX_VALUE, which would look like a successful
+            // conversion, so the range is checked before casting rather than after.
+            boolean inRange = d >= -0x1p63 && d < 0x1p63;
+            if (Double.isNaN(d) || Double.isInfinite(d) || d != Math.rint(d) || !inRange) {
                 throw SQLErrors.cannotConvert(value, target);
             }
             result = (long) d;

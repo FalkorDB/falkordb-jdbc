@@ -32,9 +32,14 @@ class ConnectionIT {
             return;
         }
         // Some tests close the connection or leave it read-only; neither is a cleanup failure.
-        if (!connection.isClosed()) {
-            connection.setReadOnly(false);
-            try (Statement statement = connection.createStatement()) {
+        if (connection.isClosed()) {
+            return;
+        }
+        // try-with-resources on the connection: a cleanup failure still reaches JUnit, but the
+        // connection is closed either way rather than leaking into later tests.
+        try (Connection open = connection) {
+            open.setReadOnly(false);
+            try (Statement statement = open.createStatement()) {
                 statement.execute("MATCH (n) DETACH DELETE n");
             } catch (SQLException e) {
                 // A test that never wrote anything leaves no graph to clean up; anything else is a
@@ -43,7 +48,6 @@ class ConnectionIT {
                     throw e;
                 }
             }
-            connection.close();
         }
     }
 

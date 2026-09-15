@@ -6,8 +6,11 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -297,18 +300,67 @@ class DatabaseMetaDataIT {
 
         @Test
         void haveTheJdbcMandatedColumnTypes() throws SQLException {
-            try (ResultSet keys = metaData.getPrimaryKeys(null, null, "Person")) {
-                ResultSetMetaData columns = keys.getMetaData();
-                // KEY_SEQ is a number even when no row is there to hold one.
-                assertThat(columns.getColumnName(5)).isEqualTo("KEY_SEQ");
-                assertThat(columns.getColumnType(5)).isEqualTo(java.sql.Types.BIGINT);
-                assertThat(columns.getColumnName(6)).isEqualTo("PK_NAME");
-                assertThat(columns.getColumnType(6)).isEqualTo(java.sql.Types.VARCHAR);
-            }
-            try (ResultSet types = metaData.getUDTs(null, null, "%", null)) {
-                ResultSetMetaData columns = types.getMetaData();
-                assertThat(columns.getColumnName(5)).isEqualTo("DATA_TYPE");
-                assertThat(columns.getColumnType(5)).isEqualTo(java.sql.Types.BIGINT);
+            // The specification fixes these, and it is deliberately not uniform: DECIMAL_DIGITS is
+            // SMALLINT for getBestRowIdentifier but INTEGER for getColumns.
+            assertColumnTypes(
+                    metaData.getPrimaryKeys(null, null, "Person"),
+                    Map.of("KEY_SEQ", Types.SMALLINT, "PK_NAME", Types.VARCHAR));
+            assertColumnTypes(
+                    metaData.getUDTs(null, null, "%", null),
+                    Map.of("DATA_TYPE", Types.INTEGER, "BASE_TYPE", Types.SMALLINT));
+            assertColumnTypes(
+                    metaData.getImportedKeys(null, null, "Person"),
+                    Map.of(
+                            "KEY_SEQ", Types.SMALLINT,
+                            "UPDATE_RULE", Types.SMALLINT,
+                            "DELETE_RULE", Types.SMALLINT,
+                            "DEFERRABILITY", Types.SMALLINT));
+            assertColumnTypes(
+                    metaData.getBestRowIdentifier(null, null, "Person", 0, true),
+                    Map.of(
+                            "SCOPE", Types.SMALLINT,
+                            "DATA_TYPE", Types.INTEGER,
+                            "COLUMN_SIZE", Types.INTEGER,
+                            "DECIMAL_DIGITS", Types.SMALLINT,
+                            "PSEUDO_COLUMN", Types.SMALLINT));
+            assertColumnTypes(
+                    metaData.getColumns(null, null, "Person", "%"),
+                    Map.of(
+                            "DATA_TYPE", Types.INTEGER,
+                            "NULLABLE", Types.INTEGER,
+                            "DECIMAL_DIGITS", Types.INTEGER,
+                            "ORDINAL_POSITION", Types.INTEGER,
+                            "SOURCE_DATA_TYPE", Types.SMALLINT));
+            assertColumnTypes(
+                    metaData.getIndexInfo(null, null, "Person", false, true),
+                    Map.of(
+                            "NON_UNIQUE", Types.BOOLEAN,
+                            "TYPE", Types.SMALLINT,
+                            "ORDINAL_POSITION", Types.SMALLINT,
+                            "CARDINALITY", Types.BIGINT,
+                            "PAGES", Types.BIGINT));
+            assertColumnTypes(metaData.getProcedures(null, null, "%"), Map.of("PROCEDURE_TYPE", Types.SMALLINT));
+            assertColumnTypes(
+                    metaData.getTypeInfo(),
+                    Map.of(
+                            "DATA_TYPE", Types.INTEGER,
+                            "PRECISION", Types.INTEGER,
+                            "NULLABLE", Types.SMALLINT,
+                            "CASE_SENSITIVE", Types.BOOLEAN,
+                            "SEARCHABLE", Types.SMALLINT,
+                            "MINIMUM_SCALE", Types.SMALLINT));
+        }
+
+        private void assertColumnTypes(ResultSet results, Map<String, Integer> expected) throws SQLException {
+            try (results) {
+                ResultSetMetaData columns = results.getMetaData();
+                Map<String, Integer> actual = new LinkedHashMap<>();
+                for (int i = 1; i <= columns.getColumnCount(); i++) {
+                    if (expected.containsKey(columns.getColumnName(i))) {
+                        actual.put(columns.getColumnName(i), columns.getColumnType(i));
+                    }
+                }
+                assertThat(actual).containsExactlyInAnyOrderEntriesOf(expected);
             }
         }
     }

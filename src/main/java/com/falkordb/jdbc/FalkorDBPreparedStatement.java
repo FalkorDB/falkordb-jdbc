@@ -13,6 +13,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,6 +21,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -31,6 +33,7 @@ import java.util.Map;
 import java.util.TreeSet;
 
 import com.falkordb.jdbc.internal.CypherQuery;
+import com.falkordb.jdbc.internal.GraphValues;
 import com.falkordb.jdbc.internal.SQLErrors;
 
 /**
@@ -168,12 +171,19 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
 
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType) throws SQLException {
-        setObject(parameterIndex, x);
+        checkOpen();
+        parameters.put(query.nameOf(parameterIndex), encode(coerce(x, targetSqlType)));
     }
 
     @Override
     public void setObject(int parameterIndex, Object x, int targetSqlType, int scaleOrLength) throws SQLException {
-        setObject(parameterIndex, x);
+        checkOpen();
+        Object coerced = coerce(x, targetSqlType);
+        if (coerced instanceof BigDecimal decimal
+                && (targetSqlType == Types.NUMERIC || targetSqlType == Types.DECIMAL)) {
+            coerced = decimal.setScale(scaleOrLength, java.math.RoundingMode.HALF_UP);
+        }
+        parameters.put(query.nameOf(parameterIndex), encode(coerced));
     }
 
     @Override
@@ -298,6 +308,42 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         return new SQLException(
                 "FalkorDB cannot represent the non-finite value " + value + " as a parameter",
                 SQLErrors.STATE_INVALID_PARAMETER);
+    }
+
+    /**
+     * Applies the SQL type the caller asked for before binding.
+     *
+     * <p>JDBC lets a caller state the target type, and ignoring that hint would quietly send a
+     * different Cypher value than was requested — {@code setObject(1, 42, Types.VARCHAR)} must bind
+     * the string {@code "42"}, not the number. A target type FalkorDB has no equivalent for is
+     * rejected rather than silently dropped.
+     */
+    private Object coerce(Object value, int targetSqlType) throws SQLException {
+        if (value == null || targetSqlType == Types.NULL) {
+            return null;
+        }
+        Class<?> target =
+                switch (targetSqlType) {
+                    case Types.BIT, Types.BOOLEAN -> Boolean.class;
+                    case Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT -> Long.class;
+                    case Types.REAL -> Float.class;
+                    case Types.FLOAT, Types.DOUBLE -> Double.class;
+                    case Types.NUMERIC, Types.DECIMAL -> BigDecimal.class;
+                    case Types.CHAR,
+                            Types.VARCHAR,
+                            Types.LONGVARCHAR,
+                            Types.NCHAR,
+                            Types.NVARCHAR,
+                            Types.LONGNVARCHAR -> String.class;
+                    case Types.DATE -> LocalDate.class;
+                    case Types.TIME -> LocalTime.class;
+                    case Types.TIMESTAMP -> LocalDateTime.class;
+                    case Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY -> byte[].class;
+                        // ARRAY, JAVA_OBJECT and OTHER describe the value the driver already has.
+                    case Types.ARRAY, Types.JAVA_OBJECT, Types.OTHER -> null;
+                    default -> throw SQLErrors.unsupported("setObject with SQL type " + targetSqlType);
+                };
+        return target == null ? value : GraphValues.as(value, target, ZoneId.systemDefault());
     }
 
     private Object encode(Object value) throws SQLException {

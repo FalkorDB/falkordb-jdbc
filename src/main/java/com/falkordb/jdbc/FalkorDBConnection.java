@@ -69,10 +69,15 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         this.settings = settings;
         this.graphName = settings.graphName();
         this.readOnly = settings.readOnly();
+        com.falkordb.Driver built = null;
         try {
-            this.driver = build(settings);
+            built = build(settings);
+            this.driver = built;
             this.graph = driver.graph(graphName);
         } catch (RuntimeException e) {
+            // The constructor is aborting, so this object never reaches the caller and nobody can
+            // close it; the pool has to be released here or it leaks for every failed attempt.
+            closeQuietly(built);
             throw SQLErrors.translate("Failed to connect to FalkorDB at " + settings.host() + ":" + settings.port(), e);
         }
         verifyReachable();
@@ -96,8 +101,15 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
     }
 
     private void closeQuietly() {
+        closeQuietly(driver);
+    }
+
+    private static void closeQuietly(com.falkordb.Driver toClose) {
+        if (toClose == null) {
+            return;
+        }
         try {
-            driver.close();
+            toClose.close();
         } catch (Exception ignored) {
             // the connection attempt already failed; nothing useful to report from cleanup
         }
@@ -196,8 +208,19 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         return prepareCall(sql);
     }
 
-    private <T extends Statement> T track(T statement) {
+    /**
+     * Registers a statement so {@link #close()} can close it.
+     *
+     * <p>The closed check is repeated here under the lock. Without it, a {@code createStatement()}
+     * that passed {@link #checkOpen()} just before a concurrent {@code close()} could register after
+     * close() had already taken its snapshot, handing the caller a statement that nothing will ever
+     * close.
+     */
+    private <T extends Statement> T track(T statement) throws SQLException {
         synchronized (statementsLock) {
+            if (closed) {
+                throw SQLErrors.closed("Connection");
+            }
             statements.add(statement);
         }
         return statement;
@@ -499,17 +522,20 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         if (closed) {
             return;
         }
-        closed = true;
-        // Copy first: Statement.close() calls back into forget(), which mutates the live set.
-        for (Statement statement : openStatements()) {
+        // Publish the closed flag and take the snapshot together, so a statement can never be
+        // registered between the two and escape being closed.
+        Collection<Statement> open;
+        synchronized (statementsLock) {
+            closed = true;
+            open = List.copyOf(statements);
+            statements.clear();
+        }
+        for (Statement statement : open) {
             try {
                 statement.close();
             } catch (SQLException e) {
                 warnings = merge(warnings, new SQLWarning("Failed to close a statement", SQLErrors.STATE_GENERAL, e));
             }
-        }
-        synchronized (statementsLock) {
-            statements.clear();
         }
 
         // Always release the pool, even if closing the graph context fails, and report the first

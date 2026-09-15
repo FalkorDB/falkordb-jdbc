@@ -53,6 +53,20 @@ public enum FalkorType {
     /** A signed 64-bit integer. */
     INTEGER(Types.BIGINT, "INTEGER", Long.class, 19, 20),
 
+    /**
+     * A 16-bit integer. FalkorDB has no such type; this exists only so driver-generated {@link
+     * java.sql.DatabaseMetaData} result sets can declare the {@code SMALLINT} columns the JDBC
+     * specification mandates, such as {@code KEY_SEQ}. It is never inferred from a value.
+     */
+    METADATA_SMALLINT(Types.SMALLINT, "SMALLINT", Short.class, 5, 6),
+
+    /**
+     * A 32-bit integer. As with {@link #METADATA_SMALLINT}, this exists only to satisfy the JDBC
+     * metadata schema — {@code DATA_TYPE}, {@code NULLABLE} and {@code ORDINAL_POSITION} are all
+     * specified as {@code INTEGER} — and is never inferred from a value.
+     */
+    METADATA_INTEGER(Types.INTEGER, "INTEGER", Integer.class, 10, 11),
+
     /** A boolean. */
     BOOLEAN(Types.BOOLEAN, "BOOLEAN", Boolean.class, 1, 5),
 

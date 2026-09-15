@@ -304,30 +304,30 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     public ResultSet getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             throws SQLException {
         List<ColumnMeta> columns = List.of(
-                column("TABLE_CAT", FalkorType.STRING),
-                column("TABLE_SCHEM", FalkorType.STRING),
-                column("TABLE_NAME", FalkorType.STRING),
-                column("COLUMN_NAME", FalkorType.STRING),
-                column("DATA_TYPE", FalkorType.INTEGER),
-                column("TYPE_NAME", FalkorType.STRING),
-                column("COLUMN_SIZE", FalkorType.INTEGER),
-                column("BUFFER_LENGTH", FalkorType.INTEGER),
-                column("DECIMAL_DIGITS", FalkorType.INTEGER),
-                column("NUM_PREC_RADIX", FalkorType.INTEGER),
-                column("NULLABLE", FalkorType.INTEGER),
-                column("REMARKS", FalkorType.STRING),
-                column("COLUMN_DEF", FalkorType.STRING),
-                column("SQL_DATA_TYPE", FalkorType.INTEGER),
-                column("SQL_DATETIME_SUB", FalkorType.INTEGER),
-                column("CHAR_OCTET_LENGTH", FalkorType.INTEGER),
-                column("ORDINAL_POSITION", FalkorType.INTEGER),
-                column("IS_NULLABLE", FalkorType.STRING),
-                column("SCOPE_CATALOG", FalkorType.STRING),
-                column("SCOPE_SCHEMA", FalkorType.STRING),
-                column("SCOPE_TABLE", FalkorType.STRING),
-                column("SOURCE_DATA_TYPE", FalkorType.INTEGER),
-                column("IS_AUTOINCREMENT", FalkorType.STRING),
-                column("IS_GENERATEDCOLUMN", FalkorType.STRING));
+                col("getColumns", "TABLE_CAT"),
+                col("getColumns", "TABLE_SCHEM"),
+                col("getColumns", "TABLE_NAME"),
+                col("getColumns", "COLUMN_NAME"),
+                col("getColumns", "DATA_TYPE"),
+                col("getColumns", "TYPE_NAME"),
+                col("getColumns", "COLUMN_SIZE"),
+                col("getColumns", "BUFFER_LENGTH"),
+                col("getColumns", "DECIMAL_DIGITS"),
+                col("getColumns", "NUM_PREC_RADIX"),
+                col("getColumns", "NULLABLE"),
+                col("getColumns", "REMARKS"),
+                col("getColumns", "COLUMN_DEF"),
+                col("getColumns", "SQL_DATA_TYPE"),
+                col("getColumns", "SQL_DATETIME_SUB"),
+                col("getColumns", "CHAR_OCTET_LENGTH"),
+                col("getColumns", "ORDINAL_POSITION"),
+                col("getColumns", "IS_NULLABLE"),
+                col("getColumns", "SCOPE_CATALOG"),
+                col("getColumns", "SCOPE_SCHEMA"),
+                col("getColumns", "SCOPE_TABLE"),
+                col("getColumns", "SOURCE_DATA_TYPE"),
+                col("getColumns", "IS_AUTOINCREMENT"),
+                col("getColumns", "IS_GENERATEDCOLUMN"));
         if (!matchesCatalog(catalog)) {
             return result(columns, List.of());
         }
@@ -433,19 +433,19 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     public ResultSet getIndexInfo(String catalog, String schema, String table, boolean unique, boolean approximate)
             throws SQLException {
         List<ColumnMeta> columns = List.of(
-                column("TABLE_CAT", FalkorType.STRING),
-                column("TABLE_SCHEM", FalkorType.STRING),
-                column("TABLE_NAME", FalkorType.STRING),
-                column("NON_UNIQUE", FalkorType.BOOLEAN),
-                column("INDEX_QUALIFIER", FalkorType.STRING),
-                column("INDEX_NAME", FalkorType.STRING),
-                column("TYPE", FalkorType.INTEGER),
-                column("ORDINAL_POSITION", FalkorType.INTEGER),
-                column("COLUMN_NAME", FalkorType.STRING),
-                column("ASC_OR_DESC", FalkorType.STRING),
-                column("CARDINALITY", FalkorType.INTEGER),
-                column("PAGES", FalkorType.INTEGER),
-                column("FILTER_CONDITION", FalkorType.STRING));
+                col("getIndexInfo", "TABLE_CAT"),
+                col("getIndexInfo", "TABLE_SCHEM"),
+                col("getIndexInfo", "TABLE_NAME"),
+                col("getIndexInfo", "NON_UNIQUE"),
+                col("getIndexInfo", "INDEX_QUALIFIER"),
+                col("getIndexInfo", "INDEX_NAME"),
+                col("getIndexInfo", "TYPE"),
+                col("getIndexInfo", "ORDINAL_POSITION"),
+                col("getIndexInfo", "COLUMN_NAME"),
+                col("getIndexInfo", "ASC_OR_DESC"),
+                col("getIndexInfo", "CARDINALITY"),
+                col("getIndexInfo", "PAGES"),
+                col("getIndexInfo", "FILTER_CONDITION"));
         if (unique || !matchesCatalog(catalog)) {
             return result(columns, List.of());
         }
@@ -493,15 +493,15 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     public ResultSet getProcedures(String catalog, String schemaPattern, String procedureNamePattern)
             throws SQLException {
         List<ColumnMeta> columns = List.of(
-                column("PROCEDURE_CAT", FalkorType.STRING),
-                column("PROCEDURE_SCHEM", FalkorType.STRING),
-                column("PROCEDURE_NAME", FalkorType.STRING),
-                column("reserved1", FalkorType.STRING),
-                column("reserved2", FalkorType.STRING),
-                column("reserved3", FalkorType.STRING),
-                column("REMARKS", FalkorType.STRING),
-                column("PROCEDURE_TYPE", FalkorType.INTEGER),
-                column("SPECIFIC_NAME", FalkorType.STRING));
+                col("getProcedures", "PROCEDURE_CAT"),
+                col("getProcedures", "PROCEDURE_SCHEM"),
+                col("getProcedures", "PROCEDURE_NAME"),
+                col("getProcedures", "reserved1"),
+                col("getProcedures", "reserved2"),
+                col("getProcedures", "reserved3"),
+                col("getProcedures", "REMARKS"),
+                col("getProcedures", "PROCEDURE_TYPE"),
+                col("getProcedures", "SPECIFIC_NAME"));
         if (!matchesCatalog(catalog)) {
             return result(columns, List.of());
         }
@@ -532,24 +532,24 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     @Override
     public ResultSet getTypeInfo() throws SQLException {
         List<ColumnMeta> columns = List.of(
-                column("TYPE_NAME", FalkorType.STRING),
-                column("DATA_TYPE", FalkorType.INTEGER),
-                column("PRECISION", FalkorType.INTEGER),
-                column("LITERAL_PREFIX", FalkorType.STRING),
-                column("LITERAL_SUFFIX", FalkorType.STRING),
-                column("CREATE_PARAMS", FalkorType.STRING),
-                column("NULLABLE", FalkorType.INTEGER),
-                column("CASE_SENSITIVE", FalkorType.BOOLEAN),
-                column("SEARCHABLE", FalkorType.INTEGER),
-                column("UNSIGNED_ATTRIBUTE", FalkorType.BOOLEAN),
-                column("FIXED_PREC_SCALE", FalkorType.BOOLEAN),
-                column("AUTO_INCREMENT", FalkorType.BOOLEAN),
-                column("LOCAL_TYPE_NAME", FalkorType.STRING),
-                column("MINIMUM_SCALE", FalkorType.INTEGER),
-                column("MAXIMUM_SCALE", FalkorType.INTEGER),
-                column("SQL_DATA_TYPE", FalkorType.INTEGER),
-                column("SQL_DATETIME_SUB", FalkorType.INTEGER),
-                column("NUM_PREC_RADIX", FalkorType.INTEGER));
+                col("getTypeInfo", "TYPE_NAME"),
+                col("getTypeInfo", "DATA_TYPE"),
+                col("getTypeInfo", "PRECISION"),
+                col("getTypeInfo", "LITERAL_PREFIX"),
+                col("getTypeInfo", "LITERAL_SUFFIX"),
+                col("getTypeInfo", "CREATE_PARAMS"),
+                col("getTypeInfo", "NULLABLE"),
+                col("getTypeInfo", "CASE_SENSITIVE"),
+                col("getTypeInfo", "SEARCHABLE"),
+                col("getTypeInfo", "UNSIGNED_ATTRIBUTE"),
+                col("getTypeInfo", "FIXED_PREC_SCALE"),
+                col("getTypeInfo", "AUTO_INCREMENT"),
+                col("getTypeInfo", "LOCAL_TYPE_NAME"),
+                col("getTypeInfo", "MINIMUM_SCALE"),
+                col("getTypeInfo", "MAXIMUM_SCALE"),
+                col("getTypeInfo", "SQL_DATA_TYPE"),
+                col("getTypeInfo", "SQL_DATETIME_SUB"),
+                col("getTypeInfo", "NUM_PREC_RADIX"));
         List<List<Object>> rows = new ArrayList<>();
         for (FalkorType type : FalkorType.values()) {
             if (type == FalkorType.NULL || type == FalkorType.UNKNOWN) {
@@ -697,62 +697,148 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     }
 
     /**
-     * The columns of a {@link java.sql.DatabaseMetaData} result set that the specification defines
-     * as numeric or boolean. Their names are fixed by JDBC and shared across every metadata method,
-     * so an empty result can still report the schema an application is entitled to read. Any column
-     * not named here is a string.
+     * The JDBC-mandated type of every non-string column of a {@link java.sql.DatabaseMetaData}
+     * result set, per method. The specification fixes these, and it is not consistent across
+     * methods — {@code DECIMAL_DIGITS} is {@code SMALLINT} for {@code getBestRowIdentifier} but
+     * {@code INTEGER} for {@code getColumns} — so the table is keyed by method rather than by
+     * column name alone. Any column not named here is a string.
      */
-    private static final Map<String, FalkorType> METADATA_COLUMN_TYPES = metadataColumnTypes();
+    private static final Map<String, Map<String, FalkorType>> METADATA_COLUMN_TYPES = metadataColumnTypes();
 
-    private static Map<String, FalkorType> metadataColumnTypes() {
-        Map<String, FalkorType> types = new HashMap<>();
-        for (String label : List.of(
-                "ATTR_SIZE",
-                "BASE_TYPE",
-                "BUFFER_LENGTH",
-                "CARDINALITY",
-                "CHAR_OCTET_LENGTH",
-                "COLUMN_SIZE",
-                "COLUMN_TYPE",
-                "DATA_TYPE",
-                "DECIMAL_DIGITS",
-                "DEFERRABILITY",
-                "DELETE_RULE",
-                "FUNCTION_TYPE",
-                "KEY_SEQ",
-                "LENGTH",
-                "MAXIMUM_SCALE",
-                "MAX_LEN",
-                "MINIMUM_SCALE",
-                "NULLABLE",
-                "NUM_PREC_RADIX",
-                "ORDINAL_POSITION",
-                "PAGES",
-                "PRECISION",
-                "PROCEDURE_TYPE",
-                "PSEUDO_COLUMN",
-                "RADIX",
-                "SCALE",
-                "SCOPE",
-                "SEARCHABLE",
-                "SOURCE_DATA_TYPE",
-                "SQL_DATA_TYPE",
-                "SQL_DATETIME_SUB",
-                "TYPE",
-                "UPDATE_RULE")) {
-            types.put(label, FalkorType.INTEGER);
-        }
-        for (String label :
-                List.of("AUTO_INCREMENT", "CASE_SENSITIVE", "FIXED_PREC_SCALE", "NON_UNIQUE", "UNSIGNED_ATTRIBUTE")) {
-            types.put(label, FalkorType.BOOLEAN);
-        }
-        return Map.copyOf(types);
+    private static Map<String, Map<String, FalkorType>> metadataColumnTypes() {
+        Map<String, Map<String, FalkorType>> byMethod = new HashMap<>();
+        byMethod.put(
+                "getCrossReference",
+                Map.ofEntries(
+                        Map.entry("DEFERRABILITY", FalkorType.METADATA_SMALLINT),
+                        Map.entry("DELETE_RULE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("KEY_SEQ", FalkorType.METADATA_SMALLINT),
+                        Map.entry("UPDATE_RULE", FalkorType.METADATA_SMALLINT)));
+        byMethod.put(
+                "getAttributes",
+                Map.ofEntries(
+                        Map.entry("ATTR_SIZE", FalkorType.METADATA_INTEGER),
+                        Map.entry("CHAR_OCTET_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DECIMAL_DIGITS", FalkorType.METADATA_INTEGER),
+                        Map.entry("NULLABLE", FalkorType.METADATA_INTEGER),
+                        Map.entry("NUM_PREC_RADIX", FalkorType.METADATA_INTEGER),
+                        Map.entry("ORDINAL_POSITION", FalkorType.METADATA_INTEGER),
+                        Map.entry("SOURCE_DATA_TYPE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SQL_DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("SQL_DATETIME_SUB", FalkorType.METADATA_INTEGER)));
+        byMethod.put(
+                "getBestRowIdentifier",
+                Map.ofEntries(
+                        Map.entry("BUFFER_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("COLUMN_SIZE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DECIMAL_DIGITS", FalkorType.METADATA_SMALLINT),
+                        Map.entry("PSEUDO_COLUMN", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SCOPE", FalkorType.METADATA_SMALLINT)));
+        byMethod.put("getClientInfoProperties", Map.ofEntries(Map.entry("MAX_LEN", FalkorType.METADATA_INTEGER)));
+        byMethod.put(
+                "getColumns",
+                Map.ofEntries(
+                        Map.entry("BUFFER_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("CHAR_OCTET_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("COLUMN_SIZE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DECIMAL_DIGITS", FalkorType.METADATA_INTEGER),
+                        Map.entry("NULLABLE", FalkorType.METADATA_INTEGER),
+                        Map.entry("NUM_PREC_RADIX", FalkorType.METADATA_INTEGER),
+                        Map.entry("ORDINAL_POSITION", FalkorType.METADATA_INTEGER),
+                        Map.entry("SOURCE_DATA_TYPE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SQL_DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("SQL_DATETIME_SUB", FalkorType.METADATA_INTEGER)));
+        byMethod.put(
+                "getFunctionColumns",
+                Map.ofEntries(
+                        Map.entry("CHAR_OCTET_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("COLUMN_TYPE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("NULLABLE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("ORDINAL_POSITION", FalkorType.METADATA_INTEGER),
+                        Map.entry("PRECISION", FalkorType.METADATA_INTEGER),
+                        Map.entry("RADIX", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SCALE", FalkorType.METADATA_SMALLINT)));
+        byMethod.put("getFunctions", Map.ofEntries(Map.entry("FUNCTION_TYPE", FalkorType.METADATA_SMALLINT)));
+        byMethod.put(
+                "getIndexInfo",
+                Map.ofEntries(
+                        Map.entry("CARDINALITY", FalkorType.INTEGER),
+                        Map.entry("NON_UNIQUE", FalkorType.BOOLEAN),
+                        Map.entry("ORDINAL_POSITION", FalkorType.METADATA_SMALLINT),
+                        Map.entry("PAGES", FalkorType.INTEGER),
+                        Map.entry("TYPE", FalkorType.METADATA_SMALLINT)));
+        byMethod.put("getPrimaryKeys", Map.ofEntries(Map.entry("KEY_SEQ", FalkorType.METADATA_SMALLINT)));
+        byMethod.put(
+                "getProcedureColumns",
+                Map.ofEntries(
+                        Map.entry("CHAR_OCTET_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("COLUMN_TYPE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("NULLABLE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("ORDINAL_POSITION", FalkorType.METADATA_INTEGER),
+                        Map.entry("PRECISION", FalkorType.METADATA_INTEGER),
+                        Map.entry("RADIX", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SCALE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SQL_DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("SQL_DATETIME_SUB", FalkorType.METADATA_INTEGER)));
+        byMethod.put("getProcedures", Map.ofEntries(Map.entry("PROCEDURE_TYPE", FalkorType.METADATA_SMALLINT)));
+        byMethod.put(
+                "getPseudoColumns",
+                Map.ofEntries(
+                        Map.entry("CHAR_OCTET_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("COLUMN_SIZE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DECIMAL_DIGITS", FalkorType.METADATA_INTEGER),
+                        Map.entry("NUM_PREC_RADIX", FalkorType.METADATA_INTEGER)));
+        byMethod.put(
+                "getTypeInfo",
+                Map.ofEntries(
+                        Map.entry("AUTO_INCREMENT", FalkorType.BOOLEAN),
+                        Map.entry("CASE_SENSITIVE", FalkorType.BOOLEAN),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("FIXED_PREC_SCALE", FalkorType.BOOLEAN),
+                        Map.entry("MAXIMUM_SCALE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("MINIMUM_SCALE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("NULLABLE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("NUM_PREC_RADIX", FalkorType.METADATA_INTEGER),
+                        Map.entry("PRECISION", FalkorType.METADATA_INTEGER),
+                        Map.entry("SEARCHABLE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SQL_DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("SQL_DATETIME_SUB", FalkorType.METADATA_INTEGER),
+                        Map.entry("UNSIGNED_ATTRIBUTE", FalkorType.BOOLEAN)));
+        byMethod.put(
+                "getUDTs",
+                Map.ofEntries(
+                        Map.entry("BASE_TYPE", FalkorType.METADATA_SMALLINT),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER)));
+        byMethod.put(
+                "getVersionColumns",
+                Map.ofEntries(
+                        Map.entry("BUFFER_LENGTH", FalkorType.METADATA_INTEGER),
+                        Map.entry("COLUMN_SIZE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DATA_TYPE", FalkorType.METADATA_INTEGER),
+                        Map.entry("DECIMAL_DIGITS", FalkorType.METADATA_SMALLINT),
+                        Map.entry("PSEUDO_COLUMN", FalkorType.METADATA_SMALLINT),
+                        Map.entry("SCOPE", FalkorType.METADATA_SMALLINT)));
+        return Map.copyOf(byMethod);
     }
 
-    private ResultSet empty(String... labels) throws SQLException {
+    /** Describes one column of the named {@link java.sql.DatabaseMetaData} result set. */
+    private static ColumnMeta col(String method, String label) {
+        return column(
+                label, METADATA_COLUMN_TYPES.getOrDefault(method, Map.of()).getOrDefault(label, FalkorType.STRING));
+    }
+
+    private ResultSet empty(String method, String... labels) throws SQLException {
         List<ColumnMeta> columns = new ArrayList<>(labels.length);
         for (String label : labels) {
-            columns.add(column(label, METADATA_COLUMN_TYPES.getOrDefault(label, FalkorType.STRING)));
+            columns.add(col(method, label));
         }
         return result(columns, List.of());
     }
@@ -761,7 +847,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public ResultSet getPrimaryKeys(String catalog, String schema, String table) throws SQLException {
-        return empty("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ", "PK_NAME");
+        return empty("getPrimaryKeys", "TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "COLUMN_NAME", "KEY_SEQ", "PK_NAME");
     }
 
     @Override
@@ -788,6 +874,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     private ResultSet foreignKeys() throws SQLException {
         return empty(
+                "getCrossReference",
                 "PKTABLE_CAT",
                 "PKTABLE_SCHEM",
                 "PKTABLE_NAME",
@@ -809,6 +896,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
             String catalog, String schemaPattern, String procedureNamePattern, String columnNamePattern)
             throws SQLException {
         return empty(
+                "getProcedureColumns",
                 "PROCEDURE_CAT",
                 "PROCEDURE_SCHEM",
                 "PROCEDURE_NAME",
@@ -834,7 +922,14 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     @Override
     public ResultSet getFunctions(String catalog, String schemaPattern, String functionNamePattern)
             throws SQLException {
-        return empty("FUNCTION_CAT", "FUNCTION_SCHEM", "FUNCTION_NAME", "REMARKS", "FUNCTION_TYPE", "SPECIFIC_NAME");
+        return empty(
+                "getFunctions",
+                "FUNCTION_CAT",
+                "FUNCTION_SCHEM",
+                "FUNCTION_NAME",
+                "REMARKS",
+                "FUNCTION_TYPE",
+                "SPECIFIC_NAME");
     }
 
     @Override
@@ -842,6 +937,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
             String catalog, String schemaPattern, String functionNamePattern, String columnNamePattern)
             throws SQLException {
         return empty(
+                "getFunctionColumns",
                 "FUNCTION_CAT",
                 "FUNCTION_SCHEM",
                 "FUNCTION_NAME",
@@ -865,6 +961,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     public ResultSet getColumnPrivileges(String catalog, String schema, String table, String columnNamePattern)
             throws SQLException {
         return empty(
+                "getColumnPrivileges",
                 "TABLE_CAT",
                 "TABLE_SCHEM",
                 "TABLE_NAME",
@@ -878,13 +975,22 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     @Override
     public ResultSet getTablePrivileges(String catalog, String schemaPattern, String tableNamePattern)
             throws SQLException {
-        return empty("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "GRANTOR", "GRANTEE", "PRIVILEGE", "IS_GRANTABLE");
+        return empty(
+                "getTablePrivileges",
+                "TABLE_CAT",
+                "TABLE_SCHEM",
+                "TABLE_NAME",
+                "GRANTOR",
+                "GRANTEE",
+                "PRIVILEGE",
+                "IS_GRANTABLE");
     }
 
     @Override
     public ResultSet getBestRowIdentifier(String catalog, String schema, String table, int scope, boolean nullable)
             throws SQLException {
         return empty(
+                "getBestRowIdentifier",
                 "SCOPE",
                 "COLUMN_NAME",
                 "DATA_TYPE",
@@ -898,6 +1004,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     @Override
     public ResultSet getVersionColumns(String catalog, String schema, String table) throws SQLException {
         return empty(
+                "getVersionColumns",
                 "SCOPE",
                 "COLUMN_NAME",
                 "DATA_TYPE",
@@ -911,17 +1018,25 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     @Override
     public ResultSet getUDTs(String catalog, String schemaPattern, String typeNamePattern, int[] types)
             throws SQLException {
-        return empty("TYPE_CAT", "TYPE_SCHEM", "TYPE_NAME", "CLASS_NAME", "DATA_TYPE", "REMARKS", "BASE_TYPE");
+        return empty(
+                "getUDTs", "TYPE_CAT", "TYPE_SCHEM", "TYPE_NAME", "CLASS_NAME", "DATA_TYPE", "REMARKS", "BASE_TYPE");
     }
 
     @Override
     public ResultSet getSuperTypes(String catalog, String schemaPattern, String typeNamePattern) throws SQLException {
-        return empty("TYPE_CAT", "TYPE_SCHEM", "TYPE_NAME", "SUPERTYPE_CAT", "SUPERTYPE_SCHEM", "SUPERTYPE_NAME");
+        return empty(
+                "getSuperTypes",
+                "TYPE_CAT",
+                "TYPE_SCHEM",
+                "TYPE_NAME",
+                "SUPERTYPE_CAT",
+                "SUPERTYPE_SCHEM",
+                "SUPERTYPE_NAME");
     }
 
     @Override
     public ResultSet getSuperTables(String catalog, String schemaPattern, String tableNamePattern) throws SQLException {
-        return empty("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "SUPERTABLE_NAME");
+        return empty("getSuperTables", "TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "SUPERTABLE_NAME");
     }
 
     @Override
@@ -929,6 +1044,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
             String catalog, String schemaPattern, String typeNamePattern, String attributeNamePattern)
             throws SQLException {
         return empty(
+                "getAttributes",
                 "TYPE_CAT",
                 "TYPE_SCHEM",
                 "TYPE_NAME",
@@ -957,6 +1073,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
             String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
             throws SQLException {
         return empty(
+                "getPseudoColumns",
                 "TABLE_CAT",
                 "TABLE_SCHEM",
                 "TABLE_NAME",

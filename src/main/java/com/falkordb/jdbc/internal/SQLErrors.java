@@ -157,19 +157,70 @@ public final class SQLErrors {
     }
 
     private static final Pattern USERINFO_PASSWORD = Pattern.compile("(//[^/?#@]*:)([^/?#@]*)(@)");
-    private static final Pattern PASSWORD_PARAM =
-            Pattern.compile("(?i)([?&]password=)([^&#]*)"); // NOSONAR - matching, not validating
 
     /**
      * Replaces the password in a URL's userinfo and in any {@code password} query parameter with
      * {@code ***}, leaving the rest of the URL readable.
+     *
+     * <p>Parameter names are percent-decoded before comparison, because {@code ?pass%77ord=} names
+     * the same property as {@code ?password=} and must not slip past the mask.
      *
      * @param url the URL to sanitise
      * @return the URL with credentials masked
      */
     public static String redact(String url) {
         String redacted = USERINFO_PASSWORD.matcher(url).replaceAll("$1***$3");
-        return PASSWORD_PARAM.matcher(redacted).replaceAll("$1***");
+        int start = redacted.indexOf('?');
+        if (start < 0) {
+            return redacted;
+        }
+        int end = redacted.indexOf('#', start);
+        String query = end < 0 ? redacted.substring(start + 1) : redacted.substring(start + 1, end);
+        StringBuilder masked = new StringBuilder(redacted.length());
+        masked.append(redacted, 0, start + 1);
+        String[] pairs = query.split("&", -1);
+        for (int i = 0; i < pairs.length; i++) {
+            if (i > 0) {
+                masked.append('&');
+            }
+            String pair = pairs[i];
+            int eq = pair.indexOf('=');
+            if (eq >= 0 && "password".equalsIgnoreCase(decodeLoosely(pair.substring(0, eq)))) {
+                masked.append(pair, 0, eq + 1).append("***");
+            } else {
+                masked.append(pair);
+            }
+        }
+        if (end >= 0) {
+            masked.append(redacted, end, redacted.length());
+        }
+        return masked.toString();
+    }
+
+    /**
+     * Percent-decodes a parameter name for comparison only. Deliberately forgiving: its job is to
+     * decide whether a value must be masked, so a malformed escape must never stop redaction from
+     * happening. Anything it cannot decode is left alone.
+     */
+    private static String decodeLoosely(String name) {
+        if (name.indexOf('%') < 0) {
+            return name;
+        }
+        StringBuilder decoded = new StringBuilder(name.length());
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '%' && i + 2 < name.length()) {
+                int high = Character.digit(name.charAt(i + 1), 16);
+                int low = Character.digit(name.charAt(i + 2), 16);
+                if (high >= 0 && low >= 0) {
+                    decoded.append((char) ((high << 4) | low));
+                    i += 2;
+                    continue;
+                }
+            }
+            decoded.append(c);
+        }
+        return decoded.toString();
     }
 
     /**

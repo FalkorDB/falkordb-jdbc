@@ -3,6 +3,9 @@ package com.falkordb.jdbc.internal;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -458,9 +461,27 @@ public record ConnectionSettings(
                 bytes.write((high << 4) | low);
                 i += 3;
             }
-            decoded.append(bytes.toString(StandardCharsets.UTF_8));
+            decoded.append(utf8(bytes, url));
         }
         return decoded.toString();
+    }
+
+    /**
+     * Decodes percent-escaped bytes as UTF-8, rejecting anything malformed. The default replacement
+     * behaviour would turn an invalid sequence such as {@code %FF} into U+FFFD, silently altering a
+     * graph name or a password rather than reporting that the URL is wrong.
+     */
+    private static String utf8(ByteArrayOutputStream bytes, String url) throws SQLException {
+        try {
+            return StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes.toByteArray()))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            throw SQLErrors.invalidUrl(url, "URL contains a percent-escape that is not valid UTF-8");
+        }
     }
 
     private static String blankToNull(String value) {

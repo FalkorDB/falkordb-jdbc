@@ -232,7 +232,13 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
                     "Expected CLOSE_CURRENT_RESULT, KEEP_CURRENT_RESULT or CLOSE_ALL_RESULTS, but was " + current,
                     SQLErrors.STATE_INVALID_PARAMETER);
         }
-        if (current != KEEP_CURRENT_RESULT) {
+        if (current == CLOSE_ALL_RESULTS) {
+            // Including any retained by an earlier KEEP_CURRENT_RESULT, and any generated keys.
+            for (FalkorDBResultSet dependent : List.copyOf(dependents)) {
+                dependent.close();
+            }
+            checkOpen();
+        } else if (current == CLOSE_CURRENT_RESULT) {
             closeCurrentResultSet();
             checkOpen();
         }

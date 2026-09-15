@@ -233,6 +233,31 @@ class FalkorDBResultSetTest {
         }
 
         @Test
+        void refusesADoubleNoFloatCanHold() throws SQLException {
+            ResultSet rs = oneRow(FalkorType.DOUBLE, 1e300d);
+
+            assertThatThrownBy(() -> rs.getFloat(1))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("out of range");
+            assertThatThrownBy(() -> rs.getObject(1, Float.class)).isInstanceOf(SQLException.class);
+            assertThat(rs.getDouble(1)).isEqualTo(1e300d);
+        }
+
+        @Test
+        void refusesADoubleThatWouldFlushToZero() throws SQLException {
+            ResultSet rs = oneRow(FalkorType.DOUBLE, 1e-300d);
+
+            assertThatThrownBy(() -> rs.getFloat(1)).isInstanceOf(SQLException.class);
+        }
+
+        @Test
+        void keepsAnInfinityThatWasAlreadyInfinite() throws SQLException {
+            ResultSet rs = oneRow(FalkorType.DOUBLE, Double.POSITIVE_INFINITY);
+
+            assertThat(rs.getFloat(1)).isEqualTo(Float.POSITIVE_INFINITY);
+        }
+
+        @Test
         void booleans() throws SQLException {
             ResultSet rs = oneRow(FalkorType.BOOLEAN, true);
 

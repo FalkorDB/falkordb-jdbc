@@ -156,7 +156,13 @@ public final class SQLErrors {
                 STATE_CONNECTION_REJECTED);
     }
 
-    private static final Pattern USERINFO_PASSWORD = Pattern.compile("(//[^/?#@]*:)([^/?#@]*)(@)");
+    /**
+     * Matches the password inside a URL's userinfo. The password group deliberately allows {@code
+     * @} and is greedy, so it runs to the <em>last</em> {@code @} of the authority — the same
+     * delimiter {@code ConnectionSettings} splits on. Stopping at the first {@code @} would leave
+     * the tail of a password like {@code p@ss} in the message.
+     */
+    private static final Pattern USERINFO_PASSWORD = Pattern.compile("(//[^/?#]*?:)([^/?#]*)(@)");
 
     /**
      * Replaces the password in a URL's userinfo and in any {@code password} query parameter with

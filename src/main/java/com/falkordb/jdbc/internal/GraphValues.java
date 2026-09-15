@@ -330,6 +330,27 @@ public final class GraphValues {
     }
 
     /**
+     * Converts a value to a {@code float}.
+     *
+     * <p>Narrowing from FalkorDB's 64-bit double is refused when it would change the value, in the
+     * same way the integral getters refuse a lossy narrowing: {@code 1e300} has no {@code float}
+     * representation, and returning {@link Float#POSITIVE_INFINITY} would be a fabricated answer.
+     * A non-zero value that would flush to zero is refused for the same reason.
+     *
+     * @param value the value to convert
+     * @return the float value, {@code 0} for a null value
+     * @throws SQLException if the value is not numeric, or cannot be held by a float
+     */
+    public static float asFloat(Object value) throws SQLException {
+        double asDouble = asDouble(value);
+        float narrowed = (float) asDouble;
+        if (Double.isFinite(asDouble) && (Float.isInfinite(narrowed) || (narrowed == 0.0f && asDouble != 0.0))) {
+            throw new SQLException("Value " + asDouble + " is out of range for float", SQLErrors.STATE_DATA_CONVERSION);
+        }
+        return narrowed;
+    }
+
+    /**
      * Converts a value to a {@code double}.
      *
      * @param value the value to convert
@@ -628,7 +649,7 @@ public final class GraphValues {
             return asLong(value, Long.MIN_VALUE, Long.MAX_VALUE, "long");
         }
         if (type == Float.class || type == float.class) {
-            return (float) asDouble(value);
+            return asFloat(value);
         }
         if (type == Double.class || type == double.class) {
             return asDouble(value);
@@ -691,10 +712,15 @@ public final class GraphValues {
      * how a vector column is most naturally consumed, so {@code getObject(i, float[].class)} is the
      * driver's idiomatic accessor for one.
      *
+     * <p>A vector's components are already 32-bit, so narrowing them is exact. An ordinary list of
+     * doubles is also accepted, and there each element is narrowed under the same check as {@link
+     * #asFloat}, so a value no float can hold is reported rather than turned into an infinity.
+     *
      * @param value the value to convert
      * @return the components, or {@code null} if the value is not a list of numbers
+     * @throws SQLException if an element cannot be held by a float
      */
-    private static float[] asFloatArray(Object value) {
+    private static float[] asFloatArray(Object value) throws SQLException {
         if (!(value instanceof List<?> list)) {
             return null;
         }
@@ -703,7 +729,7 @@ public final class GraphValues {
             if (!(list.get(i) instanceof Number number)) {
                 return null;
             }
-            components[i] = number.floatValue();
+            components[i] = number instanceof Float exact ? exact : asFloat(number);
         }
         return components;
     }

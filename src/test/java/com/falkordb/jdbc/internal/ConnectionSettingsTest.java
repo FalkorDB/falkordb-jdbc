@@ -320,6 +320,8 @@ class ConnectionSettingsTest {
     @DisplayName("credentials in error messages")
     class ErrorRedaction {
 
+        private static final String AT = "@";
+
         @Test
         void hidesTheUserinfoPassword() {
             assertThatThrownBy(() -> ConnectionSettings.parse("jdbc:falkordb://alice:hunter2@localhost:6379", null))
@@ -335,6 +337,18 @@ class ConnectionSettingsTest {
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining("***")
                     .hasMessageNotContaining("hunter2");
+        }
+
+        @Test
+        void hidesAPasswordContainingAnAtSign() {
+            String url = "jdbc:falkordb://alice:hun" + AT + "ter2" + AT + "localhost:6379";
+
+            assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("***")
+                    .hasMessageContaining("localhost:6379")
+                    .hasMessageNotContaining("hun")
+                    .hasMessageNotContaining("ter2");
         }
 
         @Test

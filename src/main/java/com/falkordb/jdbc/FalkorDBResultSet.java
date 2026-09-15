@@ -372,7 +372,7 @@ public final class FalkorDBResultSet extends FalkorDBWrapper implements ResultSe
 
     @Override
     public float getFloat(int columnIndex) throws SQLException {
-        return (float) GraphValues.asDouble(raw(columnIndex));
+        return GraphValues.asFloat(raw(columnIndex));
     }
 
     @Override

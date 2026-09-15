@@ -145,7 +145,9 @@ class TypeMappingIT {
                 java.sql.Array array = results.getArray("value");
                 assertThat((Object[]) array.getArray()).containsExactly(1L, 2L, 3L);
                 assertThat(array.getBaseType()).isEqualTo(Types.BIGINT);
-                assertThat(results.getObject("value", List.class)).containsExactly(1L, 2L, 3L);
+                @SuppressWarnings("unchecked")
+                List<Object> list = results.getObject("value", List.class);
+                assertThat(list).containsExactly(1L, 2L, 3L);
                 assertThat(results.getString("value")).isEqualTo("[1, 2, 3]");
             }
         }
@@ -182,9 +184,9 @@ class TypeMappingIT {
                 results.next();
 
                 assertThat(results.getMetaData().getColumnType(1)).isEqualTo(Types.JAVA_OBJECT);
-                assertThat(results.getObject("value", Map.class))
-                        .containsEntry("name", "Alice")
-                        .containsEntry("age", 34L);
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = results.getObject("value", Map.class);
+                assertThat(map).containsEntry("name", "Alice").containsEntry("age", 34L);
                 assertThat(results.getString("value")).contains("name: \"Alice\"");
             }
         }

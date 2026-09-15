@@ -204,13 +204,9 @@ class ConnectionIT {
 
         @Test
         void failsFastOnAnUnreachableServer() {
-            assertThatThrownBy(() -> {
-                        Properties properties = properties("connectionTimeout", "250");
-                        try (Connection unused = java.sql.DriverManager.getConnection(
-                                "jdbc:falkordb://localhost:1/nowhere", properties)) {
-                            // never reached
-                        }
-                    })
+            assertThatThrownBy(() -> java.sql.DriverManager.getConnection(
+                                    "jdbc:falkordb://localhost:1/nowhere", properties("connectionTimeout", "250"))
+                            .close())
                     .isInstanceOf(SQLException.class)
                     .satisfies(thrown ->
                             assertThat(((SQLException) thrown).getSQLState()).startsWith("08"));

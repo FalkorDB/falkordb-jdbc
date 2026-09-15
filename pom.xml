@@ -61,6 +61,15 @@
       <version>${jfalkordb.version}</version>
     </dependency>
 
+    <!-- Jedis pulls in slf4j-api 1.7.x. Pin the 2.x API instead: it is what current applications
+         are on, so the driver cannot drag an older API into their classpath, and it is what the
+         bundle jar shades in. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>${slf4j.version}</version>
+    </dependency>
+
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -174,6 +183,16 @@
             </importOrder>
           </java>
         </configuration>
+        <executions>
+          <!-- Formatting is part of the gate, not a suggestion; mvn spotless:apply fixes it. -->
+          <execution>
+            <id>check-format</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

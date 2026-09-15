@@ -3,6 +3,7 @@ package com.falkordb.jdbc;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.function.Supplier;
 
@@ -42,6 +43,14 @@ final class TestServer {
                     "Set BOTH FALKORDB_HOST and FALKORDB_PORT to use an external FalkorDB, or neither.");
         }
         if (hasHost) {
+            // These tests create, overwrite and delete graphs, so pointing them at a server that
+            // was not started for them has to be deliberate: FALKORDB_HOST alone, left over in a
+            // shell from unrelated work, must not be enough to wipe a real database.
+            if (!Boolean.parseBoolean(System.getenv("FALKORDB_ALLOW_EXTERNAL"))) {
+                throw new IllegalStateException("FALKORDB_HOST is set, but these tests destroy data. "
+                        + "Set FALKORDB_ALLOW_EXTERNAL=true to confirm that " + envHost + ":" + envPort
+                        + " is a disposable server, or unset FALKORDB_HOST to use Testcontainers.");
+            }
             HOST = envHost;
             PORT = Integer.parseInt(envPort.trim());
         } else {
@@ -56,6 +65,23 @@ final class TestServer {
     }
 
     private TestServer() {}
+
+    /**
+     * Reports whether a failure is FalkorDB refusing to read a graph that was never created. Tests
+     * use it to tell a harmless cleanup no-op apart from a genuine error.
+     *
+     * @param failure the failure to classify
+     * @return {@code true} if the graph does not exist
+     */
+    static boolean isMissingGraph(SQLException failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            String message = cause.getMessage();
+            if (message != null && message.toLowerCase(Locale.ROOT).contains("invalid graph operation on empty key")) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * Resolves the image to run. A blank system property does not shadow a non-blank environment

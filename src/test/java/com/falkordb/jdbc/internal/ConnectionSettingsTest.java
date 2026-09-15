@@ -343,4 +343,55 @@ class ConnectionSettingsTest {
                     .isEqualTo("jdbc:falkordb://localhost:6379/social");
         }
     }
+
+    @Nested
+    @DisplayName("percent-decoding")
+    class PercentDecoding {
+
+        @Test
+        void keepsALiteralPlusInAGraphName() throws SQLException {
+            ConnectionSettings settings = ConnectionSettings.parse("jdbc:falkordb://localhost/a+b", null);
+
+            assertThat(settings.graphName()).isEqualTo("a+b");
+        }
+
+        @Test
+        void keepsALiteralPlusInAPassword() throws SQLException {
+            ConnectionSettings settings = ConnectionSettings.parse("jdbc:falkordb://user:pa+ss@localhost/graph", null);
+
+            assertThat(settings.password()).contains("pa+ss");
+        }
+
+        @Test
+        void decodesEscapedCharacters() throws SQLException {
+            ConnectionSettings settings =
+                    ConnectionSettings.parse("jdbc:falkordb://user:p%40%3Aw@localhost/my%20graph", null);
+
+            assertThat(settings.password()).contains("p@:w");
+            assertThat(settings.graphName()).isEqualTo("my graph");
+        }
+
+        @Test
+        void decodesMultiByteCharacters() throws SQLException {
+            ConnectionSettings settings = ConnectionSettings.parse("jdbc:falkordb://localhost/%C3%A9%C3%A8", null);
+
+            assertThat(settings.graphName()).isEqualTo("éè");
+        }
+
+        @Test
+        void rejectsAMalformedEscape() {
+            // A malformed escape must surface as a SQLException, never as an unchecked
+            // IllegalArgumentException escaping from the decoder.
+            assertThatThrownBy(() -> ConnectionSettings.parse("jdbc:falkordb://localhost/%zz", null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Invalid FalkorDB JDBC URL");
+        }
+
+        @Test
+        void rejectsATruncatedEscape() {
+            assertThatThrownBy(() -> ConnectionSettings.parse("jdbc:falkordb://localhost/graph%4", null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Invalid FalkorDB JDBC URL");
+        }
+    }
 }

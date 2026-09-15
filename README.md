@@ -273,7 +273,8 @@ mvn spotless:apply  # format
 ```
 
 Integration tests use [Testcontainers](https://testcontainers.com) and need a working Docker daemon.
-To run them against a server you already have, set both `FALKORDB_HOST` and `FALKORDB_PORT`; to pin
+To run them against a server you already have, set both `FALKORDB_HOST` and `FALKORDB_PORT`, plus
+`FALKORDB_ALLOW_EXTERNAL=true` to confirm it is disposable — the tests create and delete graphs. To pin
 a different image, set `FALKORDB_IMAGE`. Use a disposable instance — the suite writes to and clears
 its graphs.
 

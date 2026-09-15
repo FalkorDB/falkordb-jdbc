@@ -1,8 +1,8 @@
 package com.falkordb.jdbc.internal;
 
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -209,12 +209,13 @@ public record ConnectionSettings(
             throw SQLErrors.invalidUrl(url, "port out of range: " + port);
         }
 
-        String graph = pick(PROP_GRAPH, overrides, query).orElseGet(() -> pathToGraph(uri.getRawPath()));
+        Optional<String> declaredGraph = pick(PROP_GRAPH, overrides, query);
+        String graph = declaredGraph.isPresent() ? declaredGraph.get() : pathToGraph(uri.getRawPath(), url);
         if (graph == null || graph.isBlank()) {
             throw SQLErrors.invalidUrl(url, "no graph name; expected \"" + URL_PREFIX + "//host:port/graphName\"");
         }
 
-        String[] userInfo = splitUserInfo(uri.getRawUserInfo());
+        String[] userInfo = splitUserInfo(uri.getRawUserInfo(), url);
         Optional<String> user = pick(PROP_USER, overrides, query).or(() -> Optional.ofNullable(userInfo[0]));
         Optional<String> password = pick(PROP_PASSWORD, overrides, query).or(() -> Optional.ofNullable(userInfo[1]));
 
@@ -287,7 +288,7 @@ public record ConnectionSettings(
         return String.join(", ", all);
     }
 
-    private static String pathToGraph(String rawPath) {
+    private static String pathToGraph(String rawPath, String url) throws SQLException {
         if (rawPath == null) {
             return null;
         }
@@ -296,7 +297,7 @@ public record ConnectionSettings(
         while (path.endsWith("/")) {
             path = path.substring(0, path.length() - 1);
         }
-        return path.isEmpty() ? null : decode(path);
+        return path.isEmpty() ? null : decode(path, url);
     }
 
     /**
@@ -304,16 +305,16 @@ public record ConnectionSettings(
      * component is the user name; both halves are percent-decoded so credentials may contain
      * {@code @}, {@code :} and other reserved characters.
      */
-    private static String[] splitUserInfo(String rawUserInfo) {
+    private static String[] splitUserInfo(String rawUserInfo, String url) throws SQLException {
         if (rawUserInfo == null || rawUserInfo.isEmpty()) {
             return new String[] {null, null};
         }
         int colon = rawUserInfo.indexOf(':');
         if (colon < 0) {
-            return new String[] {blankToNull(decode(rawUserInfo)), null};
+            return new String[] {blankToNull(decode(rawUserInfo, url)), null};
         }
         return new String[] {
-            blankToNull(decode(rawUserInfo.substring(0, colon))), decode(rawUserInfo.substring(colon + 1))
+            blankToNull(decode(rawUserInfo.substring(0, colon), url)), decode(rawUserInfo.substring(colon + 1), url)
         };
     }
 
@@ -328,9 +329,9 @@ public record ConnectionSettings(
             }
             int eq = pair.indexOf('=');
             if (eq < 0) {
-                throw SQLErrors.invalidUrl(url, "query parameter \"" + decode(pair) + "\" has no value");
+                throw SQLErrors.invalidUrl(url, "query parameter \"" + decode(pair, url) + "\" has no value");
             }
-            String name = decode(pair.substring(0, eq));
+            String name = decode(pair.substring(0, eq), url);
             if (KNOWN_PROPERTIES.stream().noneMatch(known -> known.name().equals(name))) {
                 throw SQLErrors.invalidUrl(
                         url,
@@ -339,7 +340,7 @@ public record ConnectionSettings(
                                         .map(Known::name)
                                         .collect(java.util.stream.Collectors.joining(", ")));
             }
-            result.put(name, decode(pair.substring(eq + 1)));
+            result.put(name, decode(pair.substring(eq + 1), url));
         }
         return result;
     }
@@ -420,8 +421,46 @@ public record ConnectionSettings(
         }
     }
 
-    private static String decode(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+    /**
+     * Percent-decodes one URL component.
+     *
+     * <p>This is deliberately not {@link java.net.URLDecoder}, which implements HTML form decoding
+     * and would turn a literal {@code +} in a password or graph name into a space. Only {@code %XX}
+     * escapes are decoded; every other character is already a literal.
+     *
+     * @param value the raw component
+     * @param url the connection URL, for the error message
+     * @return the decoded component
+     * @throws SQLException if the component contains a malformed escape
+     */
+    private static String decode(String value, String url) throws SQLException {
+        if (value.indexOf('%') < 0) {
+            return value;
+        }
+        StringBuilder decoded = new StringBuilder(value.length());
+        int i = 0;
+        while (i < value.length()) {
+            if (value.charAt(i) != '%') {
+                decoded.append(value.charAt(i++));
+                continue;
+            }
+            // Decode a run of escapes together: one UTF-8 character may span several of them.
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream(4);
+            while (i < value.length() && value.charAt(i) == '%') {
+                if (i + 2 >= value.length()) {
+                    throw SQLErrors.invalidUrl(url, "URL contains a truncated percent-escape");
+                }
+                int high = Character.digit(value.charAt(i + 1), 16);
+                int low = Character.digit(value.charAt(i + 2), 16);
+                if (high < 0 || low < 0) {
+                    throw SQLErrors.invalidUrl(url, "URL contains a malformed percent-escape");
+                }
+                bytes.write((high << 4) | low);
+                i += 3;
+            }
+            decoded.append(bytes.toString(StandardCharsets.UTF_8));
+        }
+        return decoded.toString();
     }
 
     private static String blankToNull(String value) {

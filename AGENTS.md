@@ -40,7 +40,7 @@ Integration tests start one shared FalkorDB container per JVM through Testcontai
 | Variable | Effect |
 | --- | --- |
 | `FALKORDB_IMAGE` | Use a specific image or tag instead of the pinned digest |
-| `FALKORDB_HOST` + `FALKORDB_PORT` | Use an already-running server; **both** are required |
+| `FALKORDB_HOST` + `FALKORDB_PORT` | Use an already-running server; **both** are required, plus `FALKORDB_ALLOW_EXTERNAL=true`, because the tests destroy data |
 
 The external-server path is for debugging against a particular build. The suite deletes data in the
 graphs it uses, so only ever point it at a disposable instance.

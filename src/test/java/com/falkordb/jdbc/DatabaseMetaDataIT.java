@@ -3,6 +3,7 @@ package com.falkordb.jdbc;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -174,6 +175,20 @@ class DatabaseMetaDataIT {
         }
 
         @Test
+        void reportAMixedPropertyAsUntyped() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE (:Mixed {v: 1}), (:Mixed {v: 'text'})");
+            }
+
+            try (ResultSet columns = metaData.getColumns(null, null, "Mixed", "v")) {
+                assertThat(columns.next()).isTrue();
+                // No single JDBC type describes a property that holds both an integer and a string.
+                assertThat(columns.getInt("DATA_TYPE")).isEqualTo(java.sql.Types.OTHER);
+                assertThat(columns.getString("TYPE_NAME")).isEqualTo("UNKNOWN");
+            }
+        }
+
+        @Test
         void areEmptyForAnUnknownLabel() throws SQLException {
             assertThat(names(metaData.getColumns(null, null, "NoSuchLabel", "%"), "COLUMN_NAME"))
                     .isEmpty();
@@ -278,6 +293,23 @@ class DatabaseMetaDataIT {
                             .getMetaData()
                             .getColumnCount())
                     .isEqualTo(6);
+        }
+
+        @Test
+        void haveTheJdbcMandatedColumnTypes() throws SQLException {
+            try (ResultSet keys = metaData.getPrimaryKeys(null, null, "Person")) {
+                ResultSetMetaData columns = keys.getMetaData();
+                // KEY_SEQ is a number even when no row is there to hold one.
+                assertThat(columns.getColumnName(5)).isEqualTo("KEY_SEQ");
+                assertThat(columns.getColumnType(5)).isEqualTo(java.sql.Types.BIGINT);
+                assertThat(columns.getColumnName(6)).isEqualTo("PK_NAME");
+                assertThat(columns.getColumnType(6)).isEqualTo(java.sql.Types.VARCHAR);
+            }
+            try (ResultSet types = metaData.getUDTs(null, null, "%", null)) {
+                ResultSetMetaData columns = types.getMetaData();
+                assertThat(columns.getColumnName(5)).isEqualTo("DATA_TYPE");
+                assertThat(columns.getColumnType(5)).isEqualTo(java.sql.Types.BIGINT);
+            }
         }
     }
 

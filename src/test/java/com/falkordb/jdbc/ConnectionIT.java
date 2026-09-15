@@ -28,11 +28,20 @@ class ConnectionIT {
 
     @AfterEach
     void disconnect() throws SQLException {
-        if (connection != null) {
+        if (connection == null) {
+            return;
+        }
+        // Some tests close the connection or leave it read-only; neither is a cleanup failure.
+        if (!connection.isClosed()) {
+            connection.setReadOnly(false);
             try (Statement statement = connection.createStatement()) {
                 statement.execute("MATCH (n) DETACH DELETE n");
-            } catch (SQLException ignored) {
-                // the graph may not exist if a test never wrote to it
+            } catch (SQLException e) {
+                // A test that never wrote anything leaves no graph to clean up; anything else is a
+                // real failure and must not be hidden behind a silent catch.
+                if (!TestServer.isMissingGraph(e)) {
+                    throw e;
+                }
             }
             connection.close();
         }

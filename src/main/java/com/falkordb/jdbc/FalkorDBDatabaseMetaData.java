@@ -9,8 +9,11 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -347,17 +350,42 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return result(columns, rows);
     }
 
+    /**
+     * Resolves the JDBC type of a property from every distinct value sampled for it. A property
+     * that holds more than one type — which a schemaless graph permits — has no single JDBC type,
+     * so it is reported as {@link FalkorType#UNKNOWN} rather than as whichever type happened to be
+     * collected first.
+     */
+    private static FalkorType sampledType(Object samples) {
+        if (!(samples instanceof Collection<?> values)) {
+            return FalkorType.of(samples);
+        }
+        FalkorType resolved = null;
+        for (Object value : values) {
+            if (value == null) {
+                continue;
+            }
+            FalkorType current = FalkorType.of(value);
+            if (resolved == null) {
+                resolved = current;
+            } else if (resolved != current) {
+                return FalkorType.UNKNOWN;
+            }
+        }
+        return resolved == null ? FalkorType.NULL : resolved;
+    }
+
     private void collectProperties(
             String graph, String table, String match, Pattern properties, List<List<Object>> into) throws SQLException {
         String cypher = match + " WITH e LIMIT " + SAMPLE_LIMIT
-                + " UNWIND keys(e) AS key RETURN key, collect(DISTINCT e[key])[0] AS sample, count(*) AS present";
+                + " UNWIND keys(e) AS key RETURN key, collect(DISTINCT e[key]) AS samples, count(*) AS present";
         int ordinal = 0;
         for (Record record : query(cypher)) {
             Object key = record.getValue(0);
             if (key == null || !properties.matcher(key.toString()).matches()) {
                 continue;
             }
-            FalkorType type = FalkorType.of(record.getValue(1));
+            FalkorType type = sampledType(record.getValue(1));
             ordinal++;
             List<Object> row = new ArrayList<>(24);
             row.add(graph);
@@ -668,10 +696,63 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return new FalkorDBResultSet(columns, rows, null);
     }
 
+    /**
+     * The columns of a {@link java.sql.DatabaseMetaData} result set that the specification defines
+     * as numeric or boolean. Their names are fixed by JDBC and shared across every metadata method,
+     * so an empty result can still report the schema an application is entitled to read. Any column
+     * not named here is a string.
+     */
+    private static final Map<String, FalkorType> METADATA_COLUMN_TYPES = metadataColumnTypes();
+
+    private static Map<String, FalkorType> metadataColumnTypes() {
+        Map<String, FalkorType> types = new HashMap<>();
+        for (String label : List.of(
+                "ATTR_SIZE",
+                "BASE_TYPE",
+                "BUFFER_LENGTH",
+                "CARDINALITY",
+                "CHAR_OCTET_LENGTH",
+                "COLUMN_SIZE",
+                "COLUMN_TYPE",
+                "DATA_TYPE",
+                "DECIMAL_DIGITS",
+                "DEFERRABILITY",
+                "DELETE_RULE",
+                "FUNCTION_TYPE",
+                "KEY_SEQ",
+                "LENGTH",
+                "MAXIMUM_SCALE",
+                "MAX_LEN",
+                "MINIMUM_SCALE",
+                "NULLABLE",
+                "NUM_PREC_RADIX",
+                "ORDINAL_POSITION",
+                "PAGES",
+                "PRECISION",
+                "PROCEDURE_TYPE",
+                "PSEUDO_COLUMN",
+                "RADIX",
+                "SCALE",
+                "SCOPE",
+                "SEARCHABLE",
+                "SOURCE_DATA_TYPE",
+                "SQL_DATA_TYPE",
+                "SQL_DATETIME_SUB",
+                "TYPE",
+                "UPDATE_RULE")) {
+            types.put(label, FalkorType.INTEGER);
+        }
+        for (String label :
+                List.of("AUTO_INCREMENT", "CASE_SENSITIVE", "FIXED_PREC_SCALE", "NON_UNIQUE", "UNSIGNED_ATTRIBUTE")) {
+            types.put(label, FalkorType.BOOLEAN);
+        }
+        return Map.copyOf(types);
+    }
+
     private ResultSet empty(String... labels) throws SQLException {
         List<ColumnMeta> columns = new ArrayList<>(labels.length);
         for (String label : labels) {
-            columns.add(column(label, FalkorType.STRING));
+            columns.add(column(label, METADATA_COLUMN_TYPES.getOrDefault(label, FalkorType.STRING)));
         }
         return result(columns, List.of());
     }

@@ -25,13 +25,24 @@ public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Arr
 
     private final List<Object> elements;
     private final FalkorType elementType;
-    private final boolean vector;
     private boolean freed;
 
     FalkorDBArray(Collection<?> elements) {
+        this(elements, null);
+    }
+
+    /**
+     * @param declared the element type the caller declared, or {@code null} to infer it from the
+     *     elements. A declared type is kept even when the array is empty, which is the only way
+     *     {@code createArrayOf("BIGINT", new Object[0])} can report a useful base type.
+     */
+    FalkorDBArray(Collection<?> elements, FalkorType declared) {
         this.elements = new ArrayList<>(elements);
-        this.elementType = inferElementType(this.elements);
-        this.vector = FalkorType.of(this.elements) == FalkorType.VECTORF32;
+        boolean vector = FalkorType.of(this.elements) == FalkorType.VECTORF32;
+        // A vector's components are Floats, which FalkorType.of reports as DOUBLE; describe them as
+        // the 32-bit values they really are so getBaseType() and getResultSet() cannot disagree.
+        this.elementType =
+                declared != null ? declared : (vector ? FalkorType.FLOAT32 : inferElementType(this.elements));
     }
 
     private static FalkorType inferElementType(List<Object> elements) {
@@ -53,13 +64,13 @@ public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Arr
     @Override
     public String getBaseTypeName() throws SQLException {
         checkValid();
-        return vector ? "FLOAT32" : elementType.typeName();
+        return elementType.typeName();
     }
 
     @Override
     public int getBaseType() throws SQLException {
         checkValid();
-        return vector ? java.sql.Types.REAL : elementType.sqlType();
+        return elementType.sqlType();
     }
 
     @Override
@@ -132,9 +143,14 @@ public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Arr
         return new FalkorDBResultSet(columns, rows, null);
     }
 
-    /** JDBC array indices are one-based, matching {@code getArray(long index, int count)}'s contract. */
+    /**
+     * JDBC array indices are one-based, matching {@code getArray(long index, int count)}'s contract.
+     *
+     * <p>The largest valid start is the last element, except for an empty array, where index 1 is
+     * still accepted so {@code getResultSet()} can return no rows rather than failing.
+     */
     private List<Object> slice(long index, int count) throws SQLException {
-        if (index < 1 || index > (long) elements.size() + 1) {
+        if (index < 1 || index > Math.max(elements.size(), 1)) {
             throw new SQLException(
                     "Array index " + index + " is out of range for an array of length " + elements.size(),
                     SQLErrors.STATE_INVALID_PARAMETER);

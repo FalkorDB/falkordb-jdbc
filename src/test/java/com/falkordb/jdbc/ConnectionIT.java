@@ -1,10 +1,12 @@
 package com.falkordb.jdbc;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.Properties;
 
 import org.junit.jupiter.api.AfterEach;
@@ -223,6 +225,77 @@ class ConnectionIT {
                     .isInstanceOf(SQLException.class)
                     .satisfies(thrown ->
                             assertThat(((SQLException) thrown).getSQLState()).startsWith("08"));
+        }
+    }
+
+    @Nested
+    @DisplayName("JDBC argument validation")
+    class Arguments {
+
+        @Test
+        void rejectsHoldCursorsOverCommit() {
+            // There are no transactions to hold a cursor across, so accepting the request and then
+            // reporting CLOSE_CURSORS_AT_COMMIT would be a silent downgrade.
+            assertThatThrownBy(() -> connection.createStatement(
+                            ResultSet.TYPE_FORWARD_ONLY,
+                            ResultSet.CONCUR_READ_ONLY,
+                            ResultSet.HOLD_CURSORS_OVER_COMMIT))
+                    .isInstanceOf(SQLFeatureNotSupportedException.class);
+            assertThatThrownBy(() -> connection.prepareStatement(
+                            "RETURN 1",
+                            ResultSet.TYPE_FORWARD_ONLY,
+                            ResultSet.CONCUR_READ_ONLY,
+                            ResultSet.HOLD_CURSORS_OVER_COMMIT))
+                    .isInstanceOf(SQLFeatureNotSupportedException.class);
+        }
+
+        @Test
+        void rejectsAHoldabilityThatIsNeitherConstant() {
+            assertThatThrownBy(() ->
+                            connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, 999))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("holdability");
+        }
+
+        @Test
+        void acceptsTheHoldabilityItActuallyHas() throws SQLException {
+            try (Statement statement = connection.createStatement(
+                    ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY, ResultSet.CLOSE_CURSORS_AT_COMMIT)) {
+                assertThat(statement.getResultSetHoldability()).isEqualTo(ResultSet.CLOSE_CURSORS_AT_COMMIT);
+            }
+        }
+
+        @Test
+        void keepsTheDeclaredArrayTypeWhenThereAreNoElementsToInferFrom() throws SQLException {
+            Array declared = connection.createArrayOf("BIGINT", new Object[0]);
+
+            assertThat(declared.getBaseType()).isEqualTo(Types.BIGINT);
+            assertThat(declared.getBaseTypeName()).isEqualTo("INTEGER");
+            try (ResultSet rows = declared.getResultSet()) {
+                assertThat(rows.next()).isFalse();
+            }
+        }
+
+        @Test
+        void honoursTheDeclaredTypeOverTheElements() throws SQLException {
+            Array declared = connection.createArrayOf("VARCHAR", new Object[] {"a", "b"});
+
+            assertThat(declared.getBaseType()).isEqualTo(Types.VARCHAR);
+            assertThat((Object[]) declared.getArray()).containsExactly("a", "b");
+        }
+
+        @Test
+        void rejectsAnArrayTypeFalkorDbCannotStore() {
+            assertThatThrownBy(() -> connection.createArrayOf("STRUCT", new Object[0]))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("STRUCT");
+        }
+
+        @Test
+        void stillInfersTheTypeWhenNoneIsDeclared() throws SQLException {
+            Array inferred = connection.createArrayOf(null, new Object[] {1L, 2L});
+
+            assertThat(inferred.getBaseType()).isEqualTo(Types.BIGINT);
         }
     }
 

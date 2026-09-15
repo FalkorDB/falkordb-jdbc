@@ -1,5 +1,6 @@
 package com.falkordb.jdbc;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Round-trips every FalkorDB scalar type through the driver and asserts the documented JDBC mapping.
@@ -199,6 +201,65 @@ class TypeMappingIT {
                 assertThat(results.getObject("value", float[].class)).containsExactly(1.0f, 2.0f);
                 assertThat(results.getArray("value").getBaseType()).isEqualTo(Types.REAL);
                 assertThat(results.getMetaData().getColumnTypeName(1)).isEqualTo("VECTORF32");
+            }
+        }
+
+        @Test
+        void aVectorDescribesItsComponentsConsistently() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN vecf32([1.0, 2.0]) AS value")) {
+                results.next();
+                Array vector = results.getArray("value");
+
+                // The row view must agree with getBaseType(); reporting DOUBLE here while
+                // getBaseType() says REAL would make the two views of one array contradict.
+                try (ResultSet rows = vector.getResultSet()) {
+                    ResultSetMetaData columns = rows.getMetaData();
+                    assertThat(columns.getColumnType(2)).isEqualTo(vector.getBaseType());
+                    assertThat(columns.getColumnTypeName(2)).isEqualTo(vector.getBaseTypeName());
+                    assertThat(columns.getColumnClassName(2)).isEqualTo(Float.class.getName());
+
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getObject(2)).isInstanceOf(Float.class).isEqualTo(1.0f);
+                }
+            }
+        }
+
+        @Test
+        void refusesAStartIndexPastTheEndOfTheArray() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN [1, 2, 3] AS value")) {
+                results.next();
+                Array array = results.getArray("value");
+
+                assertThat((Object[]) array.getArray(3, 5)).hasSize(1);
+                assertThatThrownBy(() -> array.getArray(4, 0)).isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> array.getArray(0, 1)).isInstanceOf(SQLException.class);
+            }
+        }
+
+        @Test
+        void stillAllowsTheOnlyIndexAnEmptyArrayHas() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN [] AS value")) {
+                results.next();
+                Array empty = results.getArray("value");
+
+                assertThat((Object[]) empty.getArray(1, 0)).isEmpty();
+                try (ResultSet rows = empty.getResultSet()) {
+                    assertThat(rows.next()).isFalse();
+                }
+            }
+        }
+
+        @Test
+        void getBytesRefusesAListItWouldHaveToTruncate() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN [1, 2] AS value")) {
+                results.next();
+
+                assertThat(results.getBytes("value")).containsExactly((byte) 1, (byte) 2);
+            }
+            try (ResultSet results = statement.executeQuery("RETURN [1.5, 2.0] AS value")) {
+                results.next();
+
+                assertThatThrownBy(() -> results.getBytes("value")).isInstanceOf(SQLException.class);
             }
         }
     }

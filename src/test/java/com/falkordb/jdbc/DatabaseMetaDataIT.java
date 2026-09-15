@@ -5,6 +5,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** {@link DatabaseMetaData} against a real server: labels as tables, relationship types, catalogs. */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -349,6 +351,69 @@ class DatabaseMetaDataIT {
                             "CASE_SENSITIVE", Types.BOOLEAN,
                             "SEARCHABLE", Types.SMALLINT,
                             "MINIMUM_SCALE", Types.SMALLINT));
+        }
+
+        @Test
+        void doesNotAdvertiseTheDriversOwnMetadataHelperTypes() throws SQLException {
+            // METADATA_SMALLINT/METADATA_INTEGER exist to type DatabaseMetaData columns. They are
+            // not types FalkorDB can store, so getTypeInfo() must not offer them.
+            List<String> names = names(metaData.getTypeInfo(), "TYPE_NAME");
+
+            assertThat(names).doesNotContain("SMALLINT");
+            assertThat(names).containsOnlyOnce("INTEGER");
+            assertThat(names).contains("STRING", "DOUBLE", "BOOLEAN");
+        }
+
+        @Test
+        void returnsValuesOfTheJavaTypeEachColumnAdvertises() throws SQLException {
+            // getColumnClassName() promising Integer while getObject() hands back a Long would make
+            // the metadata contract a lie.
+            try (ResultSet types = metaData.getTypeInfo()) {
+                ResultSetMetaData columns = types.getMetaData();
+                assertThat(types.next()).isTrue();
+                for (int i = 1; i <= columns.getColumnCount(); i++) {
+                    Object value = types.getObject(i);
+                    if (value != null) {
+                        assertThat(value)
+                                .describedAs("column %s", columns.getColumnName(i))
+                                .isInstanceOf(Class.forName(columns.getColumnClassName(i)));
+                    }
+                }
+            } catch (ClassNotFoundException e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        @Test
+        void typesClientInfoMaxLengthAsAJdbcInteger() throws SQLException {
+            assertColumnTypes(metaData.getClientInfoProperties(), Map.of("MAX_LEN", Types.INTEGER));
+        }
+
+        @Test
+        void doesNotClaimSqlGrammarItCannotExecute() throws SQLException {
+            // The driver sends Cypher unchanged. Claiming SQL joins or unions would make a client
+            // generate SQL that the statement layer cannot run.
+            assertThat(metaData.supportsMinimumSQLGrammar()).isFalse();
+            assertThat(metaData.supportsOuterJoins()).isFalse();
+            assertThat(metaData.supportsLimitedOuterJoins()).isFalse();
+            assertThat(metaData.supportsGroupBy()).isFalse();
+            assertThat(metaData.supportsGroupByUnrelated()).isFalse();
+            assertThat(metaData.supportsGroupByBeyondSelect()).isFalse();
+            assertThat(metaData.supportsOrderByUnrelated()).isFalse();
+            assertThat(metaData.supportsExpressionsInOrderBy()).isFalse();
+            assertThat(metaData.supportsUnion()).isFalse();
+            assertThat(metaData.supportsUnionAll()).isFalse();
+            assertThat(metaData.supportsSubqueriesInComparisons()).isFalse();
+            assertThat(metaData.supportsSubqueriesInExists()).isFalse();
+            assertThat(metaData.supportsSubqueriesInIns()).isFalse();
+            assertThat(metaData.supportsCorrelatedSubqueries()).isFalse();
+        }
+
+        @Test
+        void doesNotClaimNamedParametersWhileRejectingCallableStatements() throws SQLException {
+            assertThat(metaData.supportsNamedParameters()).isFalse();
+            assertThatThrownBy(() -> connection.prepareCall("CALL db.labels()"))
+                    .isInstanceOf(SQLFeatureNotSupportedException.class);
         }
 
         private void assertColumnTypes(ResultSet results, Map<String, Integer> expected) throws SQLException {

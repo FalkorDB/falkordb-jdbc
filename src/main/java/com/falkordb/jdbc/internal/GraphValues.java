@@ -302,6 +302,21 @@ public final class GraphValues {
         return result;
     }
 
+    /**
+     * Converts an integral {@link Number} without losing information.
+     *
+     * @throws ArithmeticException if the value has a fractional part or does not fit in a long
+     */
+    private static long exactLong(Number number) {
+        if (number instanceof BigInteger bi) {
+            return bi.longValueExact();
+        }
+        if (number instanceof BigDecimal bd) {
+            return bd.longValueExact();
+        }
+        return number.longValue();
+    }
+
     private static long parseLong(String text, Object original, String target) throws SQLException {
         try {
             return Long.parseLong(text);
@@ -406,7 +421,13 @@ public final class GraphValues {
                 if (!(element instanceof Number number) || element instanceof Double || element instanceof Float) {
                     throw SQLErrors.cannotConvert(value, "byte[]");
                 }
-                long asLong = number.longValue();
+                // longValue() would quietly truncate a fractional BigDecimal to a valid-looking byte.
+                long asLong;
+                try {
+                    asLong = exactLong(number);
+                } catch (ArithmeticException e) {
+                    throw SQLErrors.cannotConvert(value, "byte[]");
+                }
                 if (asLong < Byte.MIN_VALUE || asLong > 255) {
                     throw SQLErrors.cannotConvert(value, "byte[]");
                 }

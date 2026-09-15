@@ -419,5 +419,35 @@ class StatementIT {
 
             assertThat(statement.isClosed()).isTrue();
         }
+
+        @Test
+        void rejectsAGeneratedKeysFlagThatIsNeitherConstant() throws SQLException {
+            // 0 and 3 are not NO_GENERATED_KEYS(2) or RETURN_GENERATED_KEYS(1); treating them as
+            // "no keys" would run the update anyway and hide the caller's mistake.
+            for (int invalid : new int[] {0, 3, -1}) {
+                assertThatThrownBy(() -> statement.executeUpdate("CREATE (:Flag)", invalid))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("Invalid generated-keys flag");
+                assertThatThrownBy(() -> statement.execute("CREATE (:Flag)", invalid))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("Invalid generated-keys flag");
+            }
+            try (ResultSet flags = statement.executeQuery("MATCH (f:Flag) RETURN count(f) AS n")) {
+                assertThat(flags.next()).isTrue();
+                assertThat(flags.getLong("n")).isZero();
+            }
+        }
+
+        @Test
+        void stillRejectsReturnGeneratedKeysAsUnsupported() {
+            assertThatThrownBy(() -> statement.executeUpdate("CREATE (:X)", Statement.RETURN_GENERATED_KEYS))
+                    .isInstanceOf(SQLFeatureNotSupportedException.class);
+        }
+
+        @Test
+        void acceptsNoGeneratedKeys() throws SQLException {
+            assertThat(statement.executeUpdate("CREATE (:Kept)", Statement.NO_GENERATED_KEYS))
+                    .isPositive();
+        }
     }
 }

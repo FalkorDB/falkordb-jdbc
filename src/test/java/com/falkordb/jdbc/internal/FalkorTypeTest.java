@@ -311,4 +311,46 @@ class FalkorTypeTest {
                     .isInstanceOf(SQLException.class);
         }
     }
+
+    @Nested
+    @DisplayName("declared type names")
+    class Names {
+
+        @Test
+        void resolvesFalkorAndStandardSqlSpellings() {
+            assertThat(FalkorType.byName("STRING")).isEqualTo(FalkorType.STRING);
+            assertThat(FalkorType.byName("varchar")).isEqualTo(FalkorType.STRING);
+            assertThat(FalkorType.byName("BIGINT")).isEqualTo(FalkorType.INTEGER);
+            assertThat(FalkorType.byName(" Integer ")).isEqualTo(FalkorType.INTEGER);
+            assertThat(FalkorType.byName("REAL")).isEqualTo(FalkorType.DOUBLE);
+            assertThat(FalkorType.byName("VECTORF32")).isEqualTo(FalkorType.VECTORF32);
+        }
+
+        @Test
+        void rejectsNamesFalkorDbCannotStore() {
+            assertThat(FalkorType.byName("STRUCT")).isNull();
+            assertThat(FalkorType.byName(null)).isNull();
+        }
+
+        @Test
+        void refusesToResolveTheMetadataOnlyHelpers() {
+            // These exist to type DatabaseMetaData columns; they are not storable FalkorDB types,
+            // so createArrayOf("SMALLINT", ...) must not quietly resolve to one.
+            assertThat(FalkorType.METADATA_SMALLINT.metadataOnly()).isTrue();
+            assertThat(FalkorType.METADATA_INTEGER.metadataOnly()).isTrue();
+            assertThat(FalkorType.byName("SMALLINT")).isEqualTo(FalkorType.INTEGER);
+            for (FalkorType type : FalkorType.values()) {
+                if (!type.metadataOnly() && type != FalkorType.UNKNOWN) {
+                    assertThat(FalkorType.byName(type.typeName())).isNotNull();
+                }
+            }
+        }
+
+        @Test
+        void neverInfersTheHelperTypesFromAValue() {
+            for (Object value : new Object[] {1L, (short) 1, 1, "x", 1.5d, 1.5f, true, null}) {
+                assertThat(FalkorType.of(value).metadataOnly()).isFalse();
+            }
+        }
+    }
 }

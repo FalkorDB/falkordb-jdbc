@@ -552,7 +552,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
                 col("getTypeInfo", "NUM_PREC_RADIX"));
         List<List<Object>> rows = new ArrayList<>();
         for (FalkorType type : FalkorType.values()) {
-            if (type == FalkorType.NULL || type == FalkorType.UNKNOWN) {
+            if (type == FalkorType.NULL || type == FalkorType.UNKNOWN || type.metadataOnly()) {
                 continue;
             }
             boolean text = type == FalkorType.STRING;
@@ -586,30 +586,65 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     // ---------------------------------------------------------------- introspection helpers
 
     private Set<String> labelsInUse() throws SQLException {
-        Set<String> labels = new LinkedHashSet<>();
-        for (Record record : query("CALL db.labels()")) {
-            String label = asString(record.getValue(0));
-            // db.labels() keeps reporting a label after its last node is deleted; skip those.
-            if (label != null && !label.isEmpty() && exists("MATCH (e:`" + escape(label) + "`) RETURN 1 LIMIT 1")) {
-                labels.add(label);
-            }
-        }
-        return labels;
+        return inUse("CALL db.labels()", label -> "MATCH (e:`" + escape(label) + "`)");
     }
 
     private Set<String> relationshipTypesInUse() throws SQLException {
-        Set<String> types = new LinkedHashSet<>();
-        for (Record record : query("CALL db.relationshipTypes()")) {
-            String type = asString(record.getValue(0));
-            if (type != null && !type.isEmpty() && exists("MATCH ()-[e:`" + escape(type) + "`]->() RETURN 1 LIMIT 1")) {
-                types.add(type);
-            }
-        }
-        return types;
+        return inUse("CALL db.relationshipTypes()", type -> "MATCH ()-[e:`" + escape(type) + "`]->()");
     }
 
-    private boolean exists(String cypher) throws SQLException {
-        return query(cypher).size() > 0;
+    /**
+     * Lists the labels or relationship types that still have at least one entity.
+     *
+     * <p>{@code db.labels()} keeps reporting a label after its last node is deleted, so each
+     * candidate has to be probed. Probing them one at a time costs a round trip per label, which
+     * BI tools feel sharply because they poll metadata; instead every probe is sent as one {@code
+     * UNION ALL}, keeping the cheap per-label index lookups but paying for a single round trip.
+     *
+     * @param catalogue the procedure listing the candidate names
+     * @param match builds the {@code MATCH} clause that finds one entity for a name
+     */
+    private Set<String> inUse(String catalogue, java.util.function.UnaryOperator<String> match) throws SQLException {
+        List<String> candidates = new ArrayList<>();
+        for (Record record : query(catalogue)) {
+            String name = asString(record.getValue(0));
+            if (name != null && !name.isEmpty()) {
+                candidates.add(name);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return Set.of();
+        }
+        StringBuilder probe = new StringBuilder();
+        for (String name : candidates) {
+            if (probe.length() > 0) {
+                probe.append(" UNION ALL ");
+            }
+            probe.append(match.apply(name))
+                    .append(" RETURN ")
+                    .append(quote(name))
+                    .append(" AS name LIMIT 1");
+        }
+        Set<String> present = new LinkedHashSet<>();
+        for (Record record : query(probe.toString())) {
+            String name = asString(record.getValue(0));
+            if (name != null) {
+                present.add(name);
+            }
+        }
+        // Preserve the catalogue's ordering rather than the order the probe happened to return.
+        Set<String> ordered = new LinkedHashSet<>();
+        for (String name : candidates) {
+            if (present.contains(name)) {
+                ordered.add(name);
+            }
+        }
+        return ordered;
+    }
+
+    /** Renders a name as a single-quoted Cypher string literal. */
+    private static String quote(String name) {
+        return "'" + name.replace("\\", "\\\\").replace("'", "\\'") + "'";
     }
 
     private com.falkordb.ResultSet query(String cypher) throws SQLException {
@@ -693,7 +728,36 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     }
 
     private static ResultSet result(List<ColumnMeta> columns, List<List<Object>> rows) {
-        return new FalkorDBResultSet(columns, rows, null);
+        List<List<Object>> typed = new ArrayList<>(rows.size());
+        for (List<Object> row : rows) {
+            List<Object> converted = new ArrayList<>(row.size());
+            for (int i = 0; i < row.size(); i++) {
+                converted.add(narrow(row.get(i), columns.get(i).type()));
+            }
+            typed.add(converted);
+        }
+        return new FalkorDBResultSet(columns, typed, null);
+    }
+
+    /**
+     * Boxes a metadata value as the Java type its column advertises.
+     *
+     * <p>JDBC fixes several metadata columns as {@code SMALLINT} or {@code INTEGER}, which are
+     * narrower than the 64-bit integer FalkorDB itself has. Rows are built with plain {@code long}
+     * literals, so without this {@code getObject} would hand back a {@link Long} for a column whose
+     * {@code getColumnClassName()} promises {@link Integer}.
+     */
+    private static Object narrow(Object value, FalkorType type) {
+        if (!(value instanceof Number number)) {
+            return value;
+        }
+        if (type == FalkorType.METADATA_SMALLINT) {
+            return (short) number.longValue();
+        }
+        if (type == FalkorType.METADATA_INTEGER) {
+            return (int) number.longValue();
+        }
+        return value;
     }
 
     /**
@@ -1090,13 +1154,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public ResultSet getClientInfoProperties() throws SQLException {
-        return result(
-                List.of(
-                        column("NAME", FalkorType.STRING),
-                        column("MAX_LEN", FalkorType.INTEGER),
-                        column("DEFAULT_VALUE", FalkorType.STRING),
-                        column("DESCRIPTION", FalkorType.STRING)),
-                List.of());
+        return empty("getClientInfoProperties", "NAME", "MAX_LEN", "DEFAULT_VALUE", "DESCRIPTION");
     }
 
     // ---------------------------------------------------------------- syntax and naming
@@ -1329,29 +1387,36 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return false;
     }
 
+    /**
+     * The {@code supports*} methods below describe SQL grammar. This driver sends Cypher unchanged
+     * and has no SQL-to-Cypher translation, so it reports {@code false} for all of them, matching
+     * {@link #supportsMinimumSQLGrammar()}. Cypher has its own {@code ORDER BY}, aggregation and
+     * {@code UNION}, but a client that took a {@code true} here would generate SQL this driver
+     * cannot execute. These will be revisited if a translation layer is added.
+     */
     @Override
     public boolean supportsExpressionsInOrderBy() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsOrderByUnrelated() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsGroupBy() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsGroupByUnrelated() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsGroupByBeyondSelect() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1411,7 +1476,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public boolean supportsOuterJoins() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1421,7 +1486,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public boolean supportsLimitedOuterJoins() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1503,17 +1568,17 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public boolean supportsSubqueriesInComparisons() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsSubqueriesInExists() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsSubqueriesInIns() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1523,17 +1588,17 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public boolean supportsCorrelatedSubqueries() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsUnion() {
-        return true;
+        return false;
     }
 
     @Override
     public boolean supportsUnionAll() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1601,9 +1666,14 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return false;
     }
 
+    /**
+     * Named parameters are a callable-statement feature, and every {@code prepareCall} overload is
+     * rejected. FalkorDB's own {@code $name} binding is reachable through the vendor extension
+     * {@code FalkorDBPreparedStatement.setNamedObject}, which is not what this flag describes.
+     */
     @Override
     public boolean supportsNamedParameters() {
-        return true;
+        return false;
     }
 
     @Override

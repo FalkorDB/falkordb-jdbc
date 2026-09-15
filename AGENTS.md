@@ -88,7 +88,14 @@ to each Java type a getter can ask for.
 
 **`ConnectionSettings`** parses the URL and merges properties. Precedence is deliberate:
 `Properties` > URL query parameters > URL userinfo, so `getConnection(url, user, password)` wins
-over credentials in the URL. Unknown properties are rejected, not ignored.
+over credentials in the URL.
+
+Unknown *URL query parameters* are rejected; unknown *`Properties` keys* are ignored. That
+asymmetry is deliberate, not an oversight. A URL is hand-written and belongs entirely to the
+driver, so a typo there is a mistake worth failing loudly on. A `Properties` object is routinely
+shared with connection pools and BI tools that add their own unrelated keys — HikariCP's
+`dataSourceProperties` and DBeaver both do this — so rejecting unknown keys would break callers
+who did nothing wrong.
 
 ## Conventions
 

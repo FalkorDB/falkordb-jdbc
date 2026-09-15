@@ -79,6 +79,14 @@ public enum FalkorType {
     /** A 32-bit float vector, as produced by {@code vecf32()}. */
     VECTORF32(Types.ARRAY, "VECTORF32", java.sql.Array.class, 0, Integer.MAX_VALUE),
 
+    /**
+     * One 32-bit component of a {@link #VECTORF32}. FalkorDB has no standalone float type, so this
+     * is never inferred from a value by {@link #of(Object)} — a bare {@link Float} is reported as
+     * {@link #DOUBLE}. It exists so a vector's element type can be described consistently by {@link
+     * java.sql.Array#getBaseType()} and by the metadata of {@link java.sql.Array#getResultSet()}.
+     */
+    FLOAT32(Types.REAL, "FLOAT32", Float.class, 7, 15),
+
     /** A Cypher map with string keys. */
     MAP(Types.JAVA_OBJECT, "MAP", Map.class, 0, Integer.MAX_VALUE),
 
@@ -178,6 +186,48 @@ public enum FalkorType {
      */
     public boolean isSigned() {
         return this == INTEGER || this == DOUBLE;
+    }
+
+    /**
+     * Resolves the type name a caller passed to {@link java.sql.Connection#createArrayOf}. Both
+     * FalkorDB's own names ({@code STRING}, {@code VECTORF32}) and the closest standard SQL names
+     * ({@code VARCHAR}, {@code BIGINT}) are accepted, case-insensitively.
+     *
+     * @param name the declared element type name
+     * @return the matching type, or {@code null} if the name names nothing FalkorDB can store
+     */
+    public static FalkorType byName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String upper = name.trim().toUpperCase(java.util.Locale.ROOT);
+        return switch (upper) {
+            case "VARCHAR", "CHAR", "NVARCHAR", "NCHAR", "TEXT", "CLOB" -> STRING;
+            case "BIGINT", "INT", "INT8", "SMALLINT", "TINYINT" -> INTEGER;
+            case "BOOL" -> BOOLEAN;
+            case "FLOAT", "REAL", "NUMERIC", "DECIMAL" -> DOUBLE;
+            case "TIMESTAMP" -> DATETIME;
+            case "JAVA_OBJECT", "OTHER" -> MAP;
+            default -> {
+                for (FalkorType type : values()) {
+                    if (type.typeName().equals(upper) && type != UNKNOWN && !type.metadataOnly()) {
+                        yield type;
+                    }
+                }
+                yield null;
+            }
+        };
+    }
+
+    /**
+     * Whether this constant exists only to describe a driver-generated {@link
+     * java.sql.DatabaseMetaData} column, rather than a type FalkorDB can actually store. Such
+     * constants must stay out of {@link java.sql.DatabaseMetaData#getTypeInfo()}.
+     *
+     * @return {@code true} for the metadata-only helper constants
+     */
+    public boolean metadataOnly() {
+        return this == METADATA_SMALLINT || this == METADATA_INTEGER;
     }
 
     /**

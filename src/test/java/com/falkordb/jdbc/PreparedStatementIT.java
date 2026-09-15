@@ -397,4 +397,21 @@ class PreparedStatementIT {
         Object[] array = (Object[]) results.getArray(column).getArray();
         return new ArrayList<>(java.util.Arrays.asList(array));
     }
+
+    @Nested
+    @DisplayName("non-finite numbers")
+    class NonFinite {
+
+        @Test
+        void areRejectedWhenBound() throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
+                assertThatThrownBy(() -> statement.setDouble(1, Double.NaN))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("non-finite");
+                assertThatThrownBy(() -> statement.setFloat(1, Float.POSITIVE_INFINITY))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("non-finite");
+            }
+        }
+    }
 }

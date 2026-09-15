@@ -315,4 +315,32 @@ class ConnectionSettingsTest {
                     .startsWith("jdbc:falkordb+ssl://");
         }
     }
+
+    @Nested
+    @DisplayName("credentials in error messages")
+    class ErrorRedaction {
+
+        @Test
+        void hidesTheUserinfoPassword() {
+            assertThatThrownBy(() -> ConnectionSettings.parse("jdbc:falkordb://alice:hunter2@localhost:6379", null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("***")
+                    .hasMessageNotContaining("hunter2");
+        }
+
+        @Test
+        void hidesThePasswordQueryParameter() {
+            assertThatThrownBy(() ->
+                            ConnectionSettings.parse("jdbc:falkordb://localhost/g?password=hunter2&bogus=1", null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("***")
+                    .hasMessageNotContaining("hunter2");
+        }
+
+        @Test
+        void leavesAUrlWithoutCredentialsAlone() {
+            assertThat(SQLErrors.redact("jdbc:falkordb://localhost:6379/social"))
+                    .isEqualTo("jdbc:falkordb://localhost:6379/social");
+        }
+    }
 }

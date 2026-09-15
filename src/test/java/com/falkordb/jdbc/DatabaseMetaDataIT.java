@@ -74,8 +74,10 @@ class DatabaseMetaDataIT {
         void isNotSqlCompliant() throws SQLException {
             assertThat(metaData.supportsANSI92EntryLevelSQL()).isFalse();
             assertThat(metaData.supportsTransactions()).isFalse();
-            assertThat(metaData.supportsStoredProcedures()).isTrue();
             assertThat(metaData.isReadOnly()).isFalse();
+            // This asks about the JDBC {call ...} escape, which the driver does not translate, even
+            // though FalkorDB's procedures are reachable through Cypher CALL and getProcedures().
+            assertThat(metaData.supportsStoredProcedures()).isFalse();
         }
 
         @Test
@@ -194,6 +196,27 @@ class DatabaseMetaDataIT {
     @Nested
     @DisplayName("procedures and indexes")
     class ProceduresAndIndexes {
+
+        @Test
+        void advertisesOnlyTemporalFunctionsThatExist() throws SQLException {
+            String functions = metaData.getTimeDateFunctions();
+
+            assertThat(functions)
+                    .contains("localtime")
+                    .contains("localdatetime")
+                    .contains("date");
+            for (String function : functions.split(",")) {
+                // duration() is the only advertised temporal function that needs an argument.
+                String call = "duration".equals(function) ? "duration({hours: 1})" : function + "()";
+                try (Statement statement = connection.createStatement();
+                        ResultSet results = statement.executeQuery("RETURN " + call + " IS NOT NULL AS ok")) {
+                    results.next();
+                    assertThat(results.getBoolean("ok"))
+                            .as("%s should exist", call)
+                            .isTrue();
+                }
+            }
+        }
 
         @Test
         void proceduresAreListed() throws SQLException {

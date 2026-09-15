@@ -306,4 +306,51 @@ class StatementIT {
             }
         }
     }
+
+    @Nested
+    @DisplayName("review-driven behaviour")
+    class Contracts {
+
+        @Test
+        void closeOnCompletionClosesTheStatementWithItsResultSet() throws SQLException {
+            statement.closeOnCompletion();
+
+            ResultSet results = statement.executeQuery("RETURN 1 AS one");
+            assertThat(statement.isClosed()).isFalse();
+
+            results.close();
+
+            assertThat(statement.isClosed()).isTrue();
+        }
+
+        @Test
+        void getMoreResultsRejectsAnInvalidDisposition() throws SQLException {
+            statement.execute("RETURN 1");
+
+            assertThatThrownBy(() -> statement.getMoreResults(999))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("CLOSE_CURRENT_RESULT");
+        }
+
+        @Test
+        void getMoreResultsAcceptsEveryValidDisposition() throws SQLException {
+            for (int disposition : new int[] {
+                Statement.CLOSE_CURRENT_RESULT, Statement.KEEP_CURRENT_RESULT, Statement.CLOSE_ALL_RESULTS
+            }) {
+                statement.execute("RETURN 1");
+                assertThat(statement.getMoreResults(disposition)).isFalse();
+            }
+        }
+
+        @Test
+        void getObjectAgreesWithGetArrayForAList() throws SQLException {
+            try (ResultSet results = statement.executeQuery("RETURN [1, 2] AS value")) {
+                results.next();
+
+                assertThat(results.getObject("value")).isInstanceOf(java.sql.Array.class);
+                assertThat((Object[]) ((java.sql.Array) results.getObject("value")).getArray())
+                        .isEqualTo((Object[]) results.getArray("value").getArray());
+            }
+        }
+    }
 }

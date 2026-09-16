@@ -75,6 +75,25 @@ public record CypherQuery(String original, String cypher, List<String> parameter
     }
 
     /**
+     * Wraps statement text that must reach FalkorDB exactly as written.
+     *
+     * <p>JDBC gives {@code ?} its bind-marker meaning only in a {@link java.sql.PreparedStatement}
+     * or {@link java.sql.CallableStatement}. A plain {@link java.sql.Statement} carries literal text,
+     * so rewriting a {@code ?} there would invent a {@code $p1} that nothing can ever bind, and
+     * could reject text FalkorDB accepts when a hand-written {@code $p1} appears alongside it.
+     *
+     * @param statement the Cypher text supplied by the caller
+     * @return the statement, unrewritten and with no ordinal parameters
+     * @throws SQLException if {@code statement} is {@code null}
+     */
+    public static CypherQuery literal(String statement) throws SQLException {
+        if (statement == null) {
+            throw new SQLException("Query text must not be null", SQLErrors.STATE_SYNTAX);
+        }
+        return new CypherQuery(statement, statement, List.of(), Set.of());
+    }
+
+    /**
      * Rewrites a statement's positional placeholders and inventories its named parameters.
      *
      * @param statement the Cypher text supplied by the caller

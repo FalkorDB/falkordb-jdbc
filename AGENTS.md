@@ -75,10 +75,13 @@ vendor extensions reachable through `unwrap`.
 
 ## Where the important decisions live
 
-**`CypherQuery`** is security-critical. It rewrites JDBC's `?` placeholders into FalkorDB named
+**`CypherQuery`** is security-critical. Its `translate` rewrites JDBC's `?` placeholders into FalkorDB named
 parameters while respecting string literals, comments and backtick-quoted identifiers, so a `?`
 inside `'is this a question?'` is left alone. It must never be tempted into interpolating a value
 into query text. If you touch it, add tests first.
+
+Only a `PreparedStatement` calls `translate`. A plain `Statement` calls `literal`, which sends the
+text unchanged, because JDBC gives `?` bind-marker meaning only in a prepared or callable statement.
 
 **`FalkorType`** is the single source of truth for the type mapping, and the README's type table
 mirrors it. Keep them in step.

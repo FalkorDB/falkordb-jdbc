@@ -214,6 +214,29 @@ class StatementIT {
         }
 
         @Test
+        void sendsAHandWrittenParameterNameThroughUntouched() throws SQLException {
+            // A plain Statement carries literal text. Rewriting a "?" here would invent a $p1 that
+            // the empty parameter map can never bind, and would reject this statement outright as a
+            // name collision even though it has no JDBC parameters at all.
+            try (ResultSet results = statement.executeQuery("CYPHER p1=7 RETURN $p1 AS value, 'why?' AS asked")) {
+                assertThat(results.next()).isTrue();
+                assertThat(results.getLong("value")).isEqualTo(7L);
+                assertThat(results.getString("asked")).isEqualTo("why?");
+            }
+        }
+
+        @Test
+        void doesNotTreatAQuestionMarkAsAPlaceholder() {
+            // Rewriting this to $p1 made the driver reject it as colliding with the hand-written
+            // $p1, blaming a "JDBC parameter 1" that a plain Statement does not have. The text is
+            // FalkorDB's to reject now, and it is FalkorDB that must say so.
+            assertThatThrownBy(() -> statement.executeQuery("CYPHER p1=7 RETURN $p1, ? AS x"))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageNotContaining("JDBC parameter")
+                    .hasMessageNotContaining("collides");
+        }
+
+        @Test
         void keepsASubSecondTimeoutFromTheUrlExactly() throws SQLException {
             // Rounding 1500 ms up to 2 s would let a query outlive the limit that was configured.
             try (Connection timed = java.sql.DriverManager.getConnection(

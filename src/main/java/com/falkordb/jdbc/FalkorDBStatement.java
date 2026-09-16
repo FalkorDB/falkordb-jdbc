@@ -75,7 +75,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public ResultSet executeQuery(String sql) throws SQLException {
         checkOpen();
-        run(CypherQuery.translate(sql), Map.of());
+        run(CypherQuery.literal(sql), Map.of());
         if (resultSet == null) {
             throw new SQLException(
                     "The statement returned no columns, so it has no result set; use executeUpdate or execute",
@@ -93,7 +93,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public long executeLargeUpdate(String sql) throws SQLException {
         checkOpen();
-        run(CypherQuery.translate(sql), Map.of());
+        run(CypherQuery.literal(sql), Map.of());
         if (resultSet != null) {
             throw new SQLException(
                     "The statement returned a result set; use executeQuery or execute", SQLErrors.STATE_GENERAL);
@@ -104,7 +104,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public boolean execute(String sql) throws SQLException {
         checkOpen();
-        run(CypherQuery.translate(sql), Map.of());
+        run(CypherQuery.literal(sql), Map.of());
         return resultSet != null;
     }
 

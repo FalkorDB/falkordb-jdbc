@@ -97,6 +97,9 @@ try (PreparedStatement statement = connection.prepareStatement("MATCH (p:Person 
 
 `Connection.nativeSQL(String)` shows what the server will actually receive.
 
+Rewriting happens only for a `PreparedStatement`, because that is the only place JDBC gives `?` its
+bind-marker meaning. Text handed to a plain `Statement` reaches FalkorDB exactly as written.
+
 ### Graph values
 
 Nodes, relationships, paths and points come back as the JFalkorDB types, with a readable

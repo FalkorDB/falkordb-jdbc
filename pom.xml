@@ -50,6 +50,7 @@
     <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
     <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
     <maven-shade-plugin.version>3.6.1</maven-shade-plugin.version>
+    <jacoco-plugin.version>0.8.13</jacoco-plugin.version>
     <spotless-plugin.version>2.44.5</spotless-plugin.version>
     <palantir-format.version>2.50.0</palantir-format.version>
   </properties>
@@ -163,6 +164,41 @@
             <goals>
               <goal>integration-test</goal>
               <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Coverage for Codecov: both test runs write to the same exec file, so the report
+           reflects the driver as a whole rather than the unit tests alone. Declared after
+           failsafe so the verify-phase report runs once the integration tests have. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco-plugin.version}</version>
+        <configuration>
+          <destFile>${project.build.directory}/jacoco.exec</destFile>
+          <dataFile>${project.build.directory}/jacoco.exec</dataFile>
+          <append>true</append>
+        </configuration>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>prepare-agent-integration</id>
+            <goals>
+              <goal>prepare-agent-integration</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
             </goals>
           </execution>
         </executions>

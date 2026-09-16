@@ -307,6 +307,33 @@ class ConnectionIT {
         }
 
         @Test
+        void convertsTheElementsToTheDeclaredType() throws SQLException {
+            // An Integer reported as BIGINT/Long would make getBaseType() and getArray() disagree.
+            Array declared = connection.createArrayOf("BIGINT", new Object[] {1, (short) 2, 3L});
+
+            assertThat(declared.getBaseType()).isEqualTo(Types.BIGINT);
+            assertThat((Object[]) declared.getArray()).containsExactly(1L, 2L, 3L);
+            try (ResultSet rows = declared.getResultSet()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getObject(2)).isEqualTo(1L);
+            }
+        }
+
+        @Test
+        void keepsNullElementsWhileConvertingTheRest() throws SQLException {
+            Array declared = connection.createArrayOf("VARCHAR", new Object[] {1, null});
+
+            assertThat((Object[]) declared.getArray()).containsExactly("1", null);
+        }
+
+        @Test
+        void rejectsAnElementTheDeclaredTypeCannotHold() {
+            assertThatThrownBy(() -> connection.createArrayOf("BIGINT", new Object[] {"not a number"}))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Element 0");
+        }
+
+        @Test
         void stillInfersTheTypeWhenNoneIsDeclared() throws SQLException {
             Array inferred = connection.createArrayOf(null, new Object[] {1L, 2L});
 

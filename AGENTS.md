@@ -27,7 +27,7 @@ Run a single test class or method:
 
 ```bash
 mvn test -Dtest=CypherQueryTest
-mvn test -Dtest='CypherQueryTest#rewritesPositionalPlaceholders'
+mvn test -Dtest='CypherQueryTest#numbersPlaceholdersFromOne'
 mvn verify -Dit.test=TypeMappingIT
 ```
 

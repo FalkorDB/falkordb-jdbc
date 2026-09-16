@@ -214,6 +214,25 @@ class StatementIT {
         }
 
         @Test
+        void keepsASubSecondTimeoutFromTheUrlExactly() throws SQLException {
+            // Rounding 1500 ms up to 2 s would let a query outlive the limit that was configured.
+            try (Connection timed = java.sql.DriverManager.getConnection(
+                            TestServer.url("jdbc-statement") + "?queryTimeout=1500");
+                    Statement configured = timed.createStatement()) {
+                assertThat(((FalkorDBStatement) configured).timeoutMillis()).isEqualTo(1500L);
+                // JDBC has only whole seconds to answer with, so it rounds up rather than understate.
+                assertThat(configured.getQueryTimeout()).isEqualTo(2);
+            }
+        }
+
+        @Test
+        void convertsTheSecondsOfSetQueryTimeoutToMilliseconds() throws SQLException {
+            statement.setQueryTimeout(3);
+
+            assertThat(((FalkorDBStatement) statement).timeoutMillis()).isEqualTo(3000L);
+        }
+
+        @Test
         void rejectsANegativeTimeout() {
             assertThatThrownBy(() -> statement.setQueryTimeout(-1)).isInstanceOf(SQLException.class);
         }

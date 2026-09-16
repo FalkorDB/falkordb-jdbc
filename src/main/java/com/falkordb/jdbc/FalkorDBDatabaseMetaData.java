@@ -1364,14 +1364,33 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     // ---------------------------------------------------------------- capabilities
 
+    /**
+     * {@return false, because no procedure is reachable through a {@link java.sql.CallableStatement}}
+     *
+     * <p>Read narrowly this flag is about privileges, and FalkorDB has no per-procedure ACL. But
+     * the question a JDBC client asks it is whether the procedures {@link #getProcedures} just
+     * listed can be <em>called</em>, and every {@code prepareCall} overload on this driver throws,
+     * as {@link #supportsStoredProcedures()} already says. Answering {@code true} would describe a
+     * path that does not exist. The procedures are still reachable, through Cypher {@code CALL}.
+     */
     @Override
     public boolean allProceduresAreCallable() {
-        return true;
+        return false;
     }
 
+    /**
+     * {@return false, because no table is reachable through a SQL {@code SELECT}}
+     *
+     * <p>The tables {@link #getTables} returns are graph labels and relationship types, and this
+     * driver accepts only Cypher, so nothing can be used "in a {@code SELECT} statement" in the
+     * sense this flag means. It reports {@code false} for the same reason {@link
+     * #supportsColumnAliasing()} and {@link #supportsTableCorrelationNames()} do: a tool that
+     * trusted a {@code true} would generate SQL the statement layer rejects. This will be revisited
+     * if SQL-to-Cypher translation is added.
+     */
     @Override
     public boolean allTablesAreSelectable() {
-        return true;
+        return false;
     }
 
     @Override

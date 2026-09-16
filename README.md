@@ -259,7 +259,17 @@ driver sees it — so it raises a `SQLWarning` and leaves the rows intact. Use a
 The `supports*` flags on `DatabaseMetaData` that describe **SQL grammar** all report `false`,
 including `supportsColumnAliasing` and `supportsTableCorrelationNames`. Cypher spells aliasing and
 correlation names the way SQL does, but a tool that trusted a `true` there would generate SQL, and
-this driver accepts only Cypher. They will be revisited if a translation layer is added.
+this driver accepts only Cypher. `allTablesAreSelectable` and `allProceduresAreCallable` report
+`false` for the same reason: whatever the current user is permitted to do, no label is reachable by
+`SELECT` and no procedure is reachable by `prepareCall`. They will all be revisited if a translation
+layer is added.
+
+`queryTimeout` is carried to the server in milliseconds exactly as configured. JDBC's
+`Statement.getQueryTimeout()` can only answer in whole seconds, so it rounds up — a connection
+opened with `?queryTimeout=1500` reports `2` while still aborting at 1500 ms.
+
+`createArrayOf(typeName, elements)` converts the elements to the type you name, and rejects any
+element that type cannot hold, so `getBaseType()` and `getArray()` always agree.
 
 ## Future work
 

@@ -720,17 +720,16 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         return graphName;
     }
 
-    /** The statement-level query timeout implied by the connection's {@code queryTimeout} property. */
-    int defaultQueryTimeoutSeconds() {
-        if (settings.queryTimeoutMillis().isEmpty()) {
-            return 0;
-        }
-        long millis = settings.queryTimeoutMillis().getAsLong();
-        // Round up, so a sub-second setting becomes a one-second limit rather than "no limit".
-        // Computed as a quotient plus a remainder test; millis + 999 would overflow near Long.MAX_VALUE
-        // and wrap to a negative "no limit".
-        long seconds = millis / 1000L + (millis % 1000L == 0L ? 0L : 1L);
-        return (int) Math.min(seconds, Integer.MAX_VALUE);
+    /**
+     * The statement-level query timeout implied by the connection's {@code queryTimeout} property,
+     * in milliseconds, which is the unit the property is documented in and the unit FalkorDB takes.
+     *
+     * <p>Kept in milliseconds rather than folded into {@link java.sql.Statement}'s whole seconds:
+     * rounding {@code queryTimeout=1500} up to two seconds would let a query outlive the deadline
+     * that was configured for it by almost a second.
+     */
+    long defaultQueryTimeoutMillis() {
+        return settings.queryTimeoutMillis().orElse(0L);
     }
 
     /**

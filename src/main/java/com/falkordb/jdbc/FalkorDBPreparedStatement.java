@@ -371,7 +371,14 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         Class<?> target =
                 switch (targetSqlType) {
                     case Types.BIT, Types.BOOLEAN -> Boolean.class;
-                    case Types.TINYINT, Types.SMALLINT, Types.INTEGER, Types.BIGINT -> Long.class;
+                        // Narrower than BIGINT only to get the range check: GraphValues refuses a
+                        // value the requested type cannot hold, which is the point of naming one.
+                        // FalkorDB has a single 64-bit integer type, so all four are then sent
+                        // identically; the narrow type decides what is rejected, not what arrives.
+                    case Types.TINYINT -> Byte.class;
+                    case Types.SMALLINT -> Short.class;
+                    case Types.INTEGER -> Integer.class;
+                    case Types.BIGINT -> Long.class;
                     case Types.REAL -> Float.class;
                     case Types.FLOAT, Types.DOUBLE -> Double.class;
                     case Types.NUMERIC, Types.DECIMAL -> BigDecimal.class;

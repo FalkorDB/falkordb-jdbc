@@ -378,9 +378,11 @@ class ConnectionSettingsTest {
         void hidesAPasswordHoldingAnUnescapedSlash() {
             String url = "jdbc:falkordb://alice:hun/ter2" + AT + "localhost/social";
 
+            assertThat(SQLErrors.redact(url)).doesNotContain("hun");
             assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining("***")
+                    .hasMessageNotContaining("hun")
                     .hasMessageNotContaining("ter2");
         }
 
@@ -415,9 +417,10 @@ class ConnectionSettingsTest {
             // masking only as far as that boundary would leave "ter2" behind.
             String url = "jdbc:falkordb://alice:hun?ter2/social";
 
-            assertThat(SQLErrors.redact(url)).doesNotContain("ter2");
+            assertThat(SQLErrors.redact(url)).doesNotContain("hun");
             assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
                     .isInstanceOf(SQLException.class)
+                    .hasMessageNotContaining("hun")
                     .hasMessageNotContaining("ter2");
         }
 

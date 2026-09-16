@@ -54,7 +54,10 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     private final Object dependentsLock = new Object();
 
     private long updateCount = NO_UPDATE_COUNT;
-    private int queryTimeoutSeconds;
+    // In milliseconds, the unit FalkorDB takes and the unit the queryTimeout property is
+    // documented in. JDBC's accessors speak whole seconds, but a limit that arrives from the URL
+    // never passes through them and so is not rounded.
+    private long queryTimeoutMillis;
     private long maxRows;
     private int fetchSize;
     private boolean poolable;
@@ -64,7 +67,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
 
     FalkorDBStatement(FalkorDBConnection connection) {
         this.connection = connection;
-        this.queryTimeoutSeconds = connection.defaultQueryTimeoutSeconds();
+        this.queryTimeoutMillis = connection.defaultQueryTimeoutMillis();
     }
 
     // ---------------------------------------------------------------- execution
@@ -189,8 +192,13 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
                 + statistics.propertiesSet();
     }
 
-    private long timeoutMillis() {
-        return queryTimeoutSeconds <= 0 ? 0L : queryTimeoutSeconds * 1000L;
+    /**
+     * The limit actually sent to FalkorDB, in milliseconds. Package-private because {@link
+     * #getQueryTimeout()} can only answer in whole seconds and so cannot report a sub-second limit
+     * faithfully.
+     */
+    long timeoutMillis() {
+        return Math.max(queryTimeoutMillis, 0L);
     }
 
     // ---------------------------------------------------------------- results
@@ -285,7 +293,11 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public int getQueryTimeout() throws SQLException {
         checkOpen();
-        return queryTimeoutSeconds;
+        // Rounded up, because JDBC has only whole seconds to answer with and reporting 1 for a
+        // 1500 ms limit would understate it. getQueryTimeout is therefore not always the round trip
+        // of a queryTimeout URL property; the limit actually applied is the one configured.
+        long seconds = queryTimeoutMillis / 1000L + (queryTimeoutMillis % 1000L == 0L ? 0L : 1L);
+        return (int) Math.min(seconds, Integer.MAX_VALUE);
     }
 
     /**
@@ -301,7 +313,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         if (seconds < 0) {
             throw new SQLException("Query timeout must not be negative", SQLErrors.STATE_INVALID_PARAMETER);
         }
-        queryTimeoutSeconds = seconds;
+        queryTimeoutMillis = seconds * 1000L;
     }
 
     @Override

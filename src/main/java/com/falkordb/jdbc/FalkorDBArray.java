@@ -2,6 +2,7 @@ package com.falkordb.jdbc;
 
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -27,7 +28,7 @@ public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Arr
     private final FalkorType elementType;
     private boolean freed;
 
-    FalkorDBArray(Collection<?> elements) {
+    FalkorDBArray(Collection<?> elements) throws SQLException {
         this(elements, null);
     }
 
@@ -35,14 +36,48 @@ public final class FalkorDBArray extends FalkorDBWrapper implements java.sql.Arr
      * @param declared the element type the caller declared, or {@code null} to infer it from the
      *     elements. A declared type is kept even when the array is empty, which is the only way
      *     {@code createArrayOf("BIGINT", new Object[0])} can report a useful base type.
+     * @throws SQLException if an element cannot be held by the declared type
      */
-    FalkorDBArray(Collection<?> elements, FalkorType declared) {
+    FalkorDBArray(Collection<?> elements, FalkorType declared) throws SQLException {
         this.elements = new ArrayList<>(elements);
         boolean vector = FalkorType.of(this.elements) == FalkorType.VECTORF32;
         // A vector's components are Floats, which FalkorType.of reports as DOUBLE; describe them as
         // the 32-bit values they really are so getBaseType() and getResultSet() cannot disagree.
         this.elementType =
                 declared != null ? declared : (vector ? FalkorType.FLOAT32 : inferElementType(this.elements));
+        if (declared != null) {
+            coerceToDeclaredType();
+        }
+    }
+
+    /**
+     * Converts the elements to the declared type, so the values and the metadata describing them
+     * agree.
+     *
+     * <p>Without this, {@code createArrayOf("BIGINT", new Object[] {1})} reports {@code BIGINT} and
+     * {@code Long} from {@link #getBaseType()} and {@link #getResultSet()} while handing back the
+     * {@code Integer} it was given. A value the declared type cannot hold is rejected rather than
+     * quietly reinterpreted, which is what naming a type is for.
+     */
+    private void coerceToDeclaredType() throws SQLException {
+        Class<?> target = elementType.javaType();
+        if (target == Object.class) {
+            return;
+        }
+        for (int i = 0; i < elements.size(); i++) {
+            Object element = elements.get(i);
+            if (element == null || target.isInstance(element)) {
+                continue;
+            }
+            try {
+                elements.set(i, GraphValues.as(element, target, ZoneId.systemDefault()));
+            } catch (SQLException e) {
+                throw new SQLException(
+                        "Element " + i + " cannot be stored as " + elementType.typeName() + ": " + e.getMessage(),
+                        SQLErrors.STATE_INVALID_PARAMETER,
+                        e);
+            }
+        }
     }
 
     private static FalkorType inferElementType(List<Object> elements) {

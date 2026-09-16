@@ -385,6 +385,45 @@ class PreparedStatementIT {
         }
 
         @Test
+        void aNarrowTargetTypeRangeChecksTheValue() throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
+                // Naming TINYINT asks for a byte; 128 does not fit in one, and silently widening it
+                // to BIGINT would make the declared type meaningless.
+                assertThatThrownBy(() -> statement.setObject(1, 128, java.sql.Types.TINYINT))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> statement.setObject(1, 40000, java.sql.Types.SMALLINT))
+                        .isInstanceOf(SQLException.class);
+                assertThatThrownBy(() -> statement.setObject(1, 3_000_000_000L, java.sql.Types.INTEGER))
+                        .isInstanceOf(SQLException.class);
+            }
+        }
+
+        @Test
+        void aNarrowTargetTypeStillBindsAValueThatFits() throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
+                statement.setObject(1, 127, java.sql.Types.TINYINT);
+
+                try (ResultSet results = statement.executeQuery()) {
+                    results.next();
+                    // FalkorDB has one integer type, so it comes back as the Long it stores.
+                    assertThat(results.getObject("value")).isEqualTo(127L);
+                }
+            }
+        }
+
+        @Test
+        void aWideTargetTypeStillAcceptsAWideValue() throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
+                statement.setObject(1, 3_000_000_000L, java.sql.Types.BIGINT);
+
+                try (ResultSet results = statement.executeQuery()) {
+                    results.next();
+                    assertThat(results.getObject("value")).isEqualTo(3_000_000_000L);
+                }
+            }
+        }
+
+        @Test
         void listsAreBoundAsCypherArrays() throws SQLException {
             try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
                 statement.setObject(1, List.of(1L, 2L, 3L));

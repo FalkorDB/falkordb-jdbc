@@ -88,6 +88,10 @@ class DatabaseMetaDataIT {
             // are supported emits SQL, and the driver accepts only Cypher.
             assertThat(metaData.supportsColumnAliasing()).isFalse();
             assertThat(metaData.supportsTableCorrelationNames()).isFalse();
+            // Same reasoning: a label is not reachable by SELECT and a procedure is not reachable
+            // by prepareCall, whatever the current user is allowed to do.
+            assertThat(metaData.allTablesAreSelectable()).isFalse();
+            assertThat(metaData.allProceduresAreCallable()).isFalse();
         }
 
         @Test

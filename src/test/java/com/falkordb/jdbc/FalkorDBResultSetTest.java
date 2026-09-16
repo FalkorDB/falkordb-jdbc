@@ -233,6 +233,16 @@ class FalkorDBResultSetTest {
         }
 
         @Test
+        void roundsADoubleNoFloatCanHoldExactly() throws SQLException {
+            // Every getFloat on a 64-bit double rounds: 0.1d is not 0.1f widened. Refusing a value
+            // whose round trip differs would reject nearly every real number a query can return.
+            ResultSet rs = oneRow(FalkorType.DOUBLE, 0.1d);
+
+            assertThat(rs.getFloat(1)).isEqualTo(0.1f);
+            assertThat((double) rs.getFloat(1)).isNotEqualTo(0.1d);
+        }
+
+        @Test
         void refusesADoubleNoFloatCanHold() throws SQLException {
             ResultSet rs = oneRow(FalkorType.DOUBLE, 1e300d);
 

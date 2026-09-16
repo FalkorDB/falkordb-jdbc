@@ -332,10 +332,15 @@ public final class GraphValues {
     /**
      * Converts a value to a {@code float}.
      *
-     * <p>Narrowing from FalkorDB's 64-bit double is refused when it would change the value, in the
-     * same way the integral getters refuse a lossy narrowing: {@code 1e300} has no {@code float}
-     * representation, and returning {@link Float#POSITIVE_INFINITY} would be a fabricated answer.
-     * A non-zero value that would flush to zero is refused for the same reason.
+     * <p>Narrowing from FalkorDB's 64-bit double is refused when it would <em>fabricate</em> the
+     * answer rather than round it: {@code 1e300} is nowhere near any {@code float}, and returning
+     * {@link Float#POSITIVE_INFINITY} would state a magnitude the value never had. A non-zero value
+     * that would flush to zero is refused for the same reason.
+     *
+     * <p>Rounding itself is not refused, and cannot be. A {@code float} holds 24 bits of mantissa,
+     * so almost every real number loses precision on the way in — {@code 0.1d} is not {@code 0.1f}
+     * widened back. Rejecting every value whose round trip differs would leave {@code getFloat}
+     * throwing on ordinary data, so the test is on the magnitude, not on the last bit.
      *
      * @param value the value to convert
      * @return the float value, {@code 0} for a null value

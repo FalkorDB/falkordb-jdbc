@@ -48,7 +48,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
 
     private long updateCount = NO_UPDATE_COUNT;
     private int queryTimeoutSeconds;
-    private int maxRows;
+    private long maxRows;
     private int fetchSize;
     private boolean poolable;
     private boolean closeOnCompletion;
@@ -292,7 +292,12 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     @Override
     public int getMaxRows() throws SQLException {
         checkOpen();
-        return maxRows;
+        if (maxRows > Integer.MAX_VALUE) {
+            throw new SQLException(
+                    "The row limit of " + maxRows + " does not fit in an int; use getLargeMaxRows()",
+                    SQLErrors.STATE_INVALID_PARAMETER);
+        }
+        return (int) maxRows;
     }
 
     /**
@@ -307,6 +312,28 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
      */
     @Override
     public void setMaxRows(int max) throws SQLException {
+        checkOpen();
+        if (max < 0) {
+            throw new SQLException("Max rows must not be negative", SQLErrors.STATE_INVALID_PARAMETER);
+        }
+        setLargeMaxRows(max);
+    }
+
+    @Override
+    public long getLargeMaxRows() throws SQLException {
+        checkOpen();
+        return maxRows;
+    }
+
+    /**
+     * Records a row limit that may exceed {@code int}. The value is kept exactly: clamping it would
+     * silently answer {@code getLargeMaxRows} with a limit the caller never asked for.
+     *
+     * @param max the requested maximum, or {@code 0} for no limit
+     * @throws SQLException if the statement is closed or {@code max} is negative
+     */
+    @Override
+    public void setLargeMaxRows(long max) throws SQLException {
         checkOpen();
         if (max < 0) {
             throw new SQLException("Max rows must not be negative", SQLErrors.STATE_INVALID_PARAMETER);
@@ -327,16 +354,6 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         } else {
             warnings.setNextWarning(warning);
         }
-    }
-
-    @Override
-    public long getLargeMaxRows() throws SQLException {
-        return getMaxRows();
-    }
-
-    @Override
-    public void setLargeMaxRows(long max) throws SQLException {
-        setMaxRows(max > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) max);
     }
 
     @Override

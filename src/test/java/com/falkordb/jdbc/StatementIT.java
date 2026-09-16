@@ -312,6 +312,29 @@ class StatementIT {
     class Contracts {
 
         @Test
+        void keepsALargeRowLimitExactly() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                long beyondInt = Integer.MAX_VALUE + 1L;
+                statement.setLargeMaxRows(beyondInt);
+
+                assertThat(statement.getLargeMaxRows()).isEqualTo(beyondInt);
+                // Reporting Integer.MAX_VALUE would answer with a limit nobody asked for.
+                assertThatThrownBy(statement::getMaxRows).isInstanceOf(SQLException.class);
+            }
+        }
+
+        @Test
+        void rejectsANegativeLargeRowLimit() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                assertThatThrownBy(() -> statement.setLargeMaxRows(-1)).isInstanceOf(SQLException.class);
+                // Long.MIN_VALUE used to survive a narrowing cast to int as 0.
+                assertThatThrownBy(() -> statement.setLargeMaxRows(Long.MIN_VALUE))
+                        .isInstanceOf(SQLException.class);
+                assertThat(statement.getLargeMaxRows()).isZero();
+            }
+        }
+
+        @Test
         void closeOnCompletionClosesTheStatementWithItsResultSet() throws SQLException {
             statement.closeOnCompletion();
 

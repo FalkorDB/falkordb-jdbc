@@ -80,12 +80,47 @@ public final class FalkorDBDriver extends FalkorDBWrapper implements java.sql.Dr
         return ConnectionSettings.acceptsUrl(url);
     }
 
+    /**
+     * Describes every property this driver understands, filled in with the value each one would
+     * actually take for {@code url} and {@code info}.
+     *
+     * <p>The URL is parsed so a setting written there — {@code ?ssl=true}, or the graph in the path —
+     * is reported rather than shown as unset, which is what a tool building a connection dialog
+     * needs. A URL that cannot be parsed is not an error here: the properties are still described,
+     * using only what {@code info} supplied.
+     *
+     * <p>The password is described but never filled in, from either source.
+     *
+     * @param url the JDBC URL, which may be {@code null} or invalid
+     * @param info the properties gathered so far, which may be {@code null}
+     * @return one entry per known property
+     */
     @Override
     public DriverPropertyInfo[] getPropertyInfo(String url, Properties info) {
         Properties supplied = info == null ? new Properties() : info;
+        ConnectionSettings settings = null;
+        if (ConnectionSettings.acceptsUrl(url)) {
+            try {
+                settings = ConnectionSettings.parse(url, supplied);
+            } catch (SQLException e) {
+                // Nothing to report from an unparseable URL, but the properties still describe
+                // themselves, and getPropertyInfo is how a tool discovers what to ask for.
+                settings = null;
+            }
+        }
         List<DriverPropertyInfo> result = new ArrayList<>(ConnectionSettings.KNOWN_PROPERTIES.size());
         for (ConnectionSettings.Known known : ConnectionSettings.KNOWN_PROPERTIES) {
-            DriverPropertyInfo property = new DriverPropertyInfo(known.name(), supplied.getProperty(known.name()));
+            String effective;
+            if (ConnectionSettings.PROP_PASSWORD.equals(known.name())) {
+                // Described but never filled in: DriverPropertyInfo is displayed and logged by the
+                // tools that ask for it, and the driver redacts credentials everywhere else.
+                effective = null;
+            } else if (settings == null) {
+                effective = supplied.getProperty(known.name());
+            } else {
+                effective = settings.valueOf(known.name()).orElseGet(() -> supplied.getProperty(known.name()));
+            }
+            DriverPropertyInfo property = new DriverPropertyInfo(known.name(), effective);
             property.description = known.description();
             property.required = false;
             property.choices =

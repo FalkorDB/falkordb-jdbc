@@ -84,6 +84,10 @@ class DatabaseMetaDataIT {
             // This asks about the JDBC {call ...} escape, which the driver does not translate, even
             // though FalkorDB's procedures are reachable through Cypher CALL and getProcedures().
             assertThat(metaData.supportsStoredProcedures()).isFalse();
+            // Cypher spells aliasing and correlation names the way SQL does, but a tool told these
+            // are supported emits SQL, and the driver accepts only Cypher.
+            assertThat(metaData.supportsColumnAliasing()).isFalse();
+            assertThat(metaData.supportsTableCorrelationNames()).isFalse();
         }
 
         @Test
@@ -194,6 +198,115 @@ class DatabaseMetaDataIT {
         }
 
         @Test
+        void numberColumnsByTheirPlaceInTheTableNotTheFilter() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE (:Ordered {a: 1, b: 2, c: 3})");
+            }
+
+            int unfiltered;
+            try (ResultSet columns = metaData.getColumns(null, null, "Ordered", "c")) {
+                assertThat(columns.next()).isTrue();
+                unfiltered = columns.getInt("ORDINAL_POSITION");
+            }
+
+            // 'c' is the third property; asking only for it must not renumber it to the first.
+            assertThat(unfiltered).isEqualTo(3);
+        }
+
+        @Test
+        void areNumberedStablyAcrossCalls() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE (:Stable {zeta: 1, alpha: 2, mu: 3})");
+            }
+
+            assertThat(ordinals("Stable")).isEqualTo(ordinals("Stable")).containsExactly(1, 2, 3);
+            // keys(e) may answer in a different order each call, so the driver imposes one.
+            assertThat(names(metaData.getColumns(null, null, "Stable", "%"), "COLUMN_NAME"))
+                    .containsExactly("alpha", "mu", "zeta");
+        }
+
+        @Test
+        void areOrderedByTableThenOrdinalPosition() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE (:SortBravo {b: 1}), (:SortAlpha {a: 1, z: 2})");
+            }
+
+            List<String> seen = new ArrayList<>();
+            try (ResultSet columns = metaData.getColumns(null, null, "Sort%", "%")) {
+                while (columns.next()) {
+                    seen.add(columns.getString("TABLE_NAME") + "." + columns.getInt("ORDINAL_POSITION"));
+                }
+            }
+
+            // Created Bravo first, but the rows come back ordered by table then ordinal.
+            assertThat(seen).containsExactly("SortAlpha.1", "SortAlpha.2", "SortBravo.1");
+        }
+
+        @Test
+        void describeEveryMatchingLabelInOneSamplingQuery() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE (:BatchOne {p: 1}), (:BatchTwo {q: 2}), (:BatchThree {r: 3})");
+            }
+
+            long before = graphQueriesServed();
+            List<String> seen = names(metaData.getColumns(null, null, "Batch%", "%"), "COLUMN_NAME");
+            long queries = graphQueriesServed() - before;
+
+            assertThat(seen).containsExactlyInAnyOrder("p", "q", "r");
+            // Five today: the label and relationship-type catalogues, an in-use probe for each, and
+            // one UNION ALL that samples all three labels. Sampling per label would make it seven,
+            // which is the cost BI tools feel when they poll getColumns.
+            assertThat(queries).isLessThanOrEqualTo(5);
+        }
+
+        /** Counts the graph queries the server has executed, from Redis {@code INFO commandstats}. */
+        private long graphQueriesServed() {
+            try (redis.clients.jedis.Jedis probe =
+                    new redis.clients.jedis.Jedis(TestServer.host(), TestServer.port())) {
+                long total = 0;
+                for (String line : probe.info("commandstats").split("\r?\n")) {
+                    // FalkorDB registers its commands as graph.QUERY, so the case is not uniform.
+                    String name = line.toLowerCase(java.util.Locale.ROOT);
+                    if (name.startsWith("cmdstat_graph.query:") || name.startsWith("cmdstat_graph.ro_query:")) {
+                        java.util.regex.Matcher calls =
+                                java.util.regex.Pattern.compile("calls=(\\d+)").matcher(line);
+                        if (calls.find()) {
+                            total += Long.parseLong(calls.group(1));
+                        }
+                    }
+                }
+                return total;
+            }
+        }
+
+        @Test
+        void keepALabelAndARelationshipTypeOfTheSameNameApart() throws SQLException {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        """
+                        CREATE (a:Twin {nodeSide: 1}), (b:Twin {nodeSide: 2}),
+                               (a)-[:Twin {edgeSide: 3}]->(b)
+                        """);
+            }
+
+            List<String> seen = names(metaData.getColumns(null, null, "Twin", "%"), "COLUMN_NAME");
+
+            // The batched query tags its branches by position, because the name does not tell a
+            // label and a relationship type apart.
+            assertThat(seen).containsExactlyInAnyOrder("nodeSide", "edgeSide");
+        }
+
+        private List<Integer> ordinals(String table) throws SQLException {
+            List<Integer> found = new ArrayList<>();
+            try (ResultSet columns = metaData.getColumns(null, null, table, "%")) {
+                while (columns.next()) {
+                    found.add(columns.getInt("ORDINAL_POSITION"));
+                }
+            }
+            return found;
+        }
+
+        @Test
         void areEmptyForAnUnknownLabel() throws SQLException {
             assertThat(names(metaData.getColumns(null, null, "NoSuchLabel", "%"), "COLUMN_NAME"))
                     .isEmpty();
@@ -245,6 +358,13 @@ class DatabaseMetaDataIT {
         }
 
         @Test
+        void proceduresAreOrderedByName() throws SQLException {
+            List<String> names = names(metaData.getProcedures(null, null, "%"), "PROCEDURE_NAME");
+
+            assertThat(names).isSorted();
+        }
+
+        @Test
         void indexesAreListed() throws SQLException {
             try (Statement statement = connection.createStatement()) {
                 statement.execute("CREATE INDEX FOR (p:Person) ON (p.name)");
@@ -252,6 +372,27 @@ class DatabaseMetaDataIT {
 
             assertThat(names(metaData.getIndexInfo(null, null, "Person", false, false), "COLUMN_NAME"))
                     .contains("name");
+        }
+
+        @Test
+        void indexesAreOrderedAsJdbcRequires() throws SQLException {
+            // Distinct labels, so this does not collide with the index another test creates.
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate("CREATE (:IdxBeta {k: 1}), (:IdxAlpha {k: 1})");
+                statement.execute("CREATE INDEX FOR (b:IdxBeta) ON (b.k)");
+                statement.execute("CREATE INDEX FOR (a:IdxAlpha) ON (a.k)");
+            }
+
+            List<String> seen = new ArrayList<>();
+            try (ResultSet indexes = metaData.getIndexInfo(null, null, null, false, false)) {
+                while (indexes.next()) {
+                    seen.add(indexes.getString("INDEX_NAME") + "#" + indexes.getInt("ORDINAL_POSITION"));
+                }
+            }
+
+            // Every row here is non-unique and of the same TYPE, so the ordering falls to
+            // INDEX_NAME then ORDINAL_POSITION.
+            assertThat(seen).isSorted();
         }
     }
 
@@ -264,6 +405,15 @@ class DatabaseMetaDataIT {
             List<String> types = names(metaData.getTypeInfo(), "TYPE_NAME");
 
             assertThat(types).contains("STRING", "INTEGER", "BOOLEAN", "DOUBLE", "NODE", "RELATIONSHIP", "POINT");
+        }
+
+        @Test
+        void omitsTheVectorElementType() throws SQLException {
+            List<String> types = names(metaData.getTypeInfo(), "TYPE_NAME");
+
+            // FLOAT32 only ever describes the elements of a vecf32 vector; FalkorDB has no 32-bit
+            // scalar, so offering it as a column type would advertise something unreachable.
+            assertThat(types).doesNotContain("FLOAT32").contains("VECTORF32");
         }
 
         @Test

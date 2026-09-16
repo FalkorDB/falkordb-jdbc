@@ -304,6 +304,16 @@ class ConnectionSettingsTest {
         }
 
         @Test
+        void percentEncodesTheComponentsItRebuilds() throws SQLException {
+            String url = parse("jdbc:falkordb://a%40b@localhost/my%20graph").toRedactedUrl();
+
+            // The parser accepts the encoded spellings, so the rebuilt URL has to parse back to the
+            // same settings rather than emit a raw '@' or space.
+            assertThat(url).contains("a%40b@").contains("/my%20graph");
+            assertThat(ConnectionSettings.parse(url, null).graphName()).isEqualTo("my graph");
+        }
+
+        @Test
         void omitsUserInfoWhenThereIsNone() throws SQLException {
             assertThat(parse("jdbc:falkordb://localhost/social").toRedactedUrl())
                     .isEqualTo("jdbc:falkordb://localhost:6379/social");

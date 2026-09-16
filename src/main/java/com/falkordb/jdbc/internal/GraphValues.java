@@ -616,17 +616,40 @@ public final class GraphValues {
         if (value == null) {
             return null;
         }
-        if (type == Object.class) {
-            return type.cast(value);
-        }
-        if (type.isInstance(value) && type != Object.class) {
-            return type.cast(value);
+        // int.class is typed Class<Integer>, so getObject(1, int.class) compiles and callers do write
+        // it. Class.cast cannot help there — int.class.isInstance(Integer) is false and int.class
+        // .cast throws ClassCastException — so a primitive literal is answered by its wrapper.
+        Class<T> target = boxed(type);
+        if (target == Object.class || target.isInstance(value)) {
+            return target.cast(value);
         }
         Object converted = convert(value, type, zone);
         if (converted == null) {
             throw SQLErrors.cannotConvert(value, type.getName());
         }
-        return type.cast(converted);
+        return target.cast(converted);
+    }
+
+    private static final Map<Class<?>, Class<?>> WRAPPERS = Map.of(
+            boolean.class, Boolean.class,
+            byte.class, Byte.class,
+            short.class, Short.class,
+            int.class, Integer.class,
+            long.class, Long.class,
+            float.class, Float.class,
+            double.class, Double.class,
+            char.class, Character.class,
+            void.class, Void.class);
+
+    /**
+     * Returns the wrapper for a primitive class literal, and any other class unchanged.
+     *
+     * <p>The cast is safe because {@code int.class} and friends are declared as {@code
+     * Class<Integer>}: the wrapper is the class literal's own type argument.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> Class<T> boxed(Class<T> type) {
+        return type.isPrimitive() ? (Class<T>) WRAPPERS.get(type) : type;
     }
 
     private static Object convert(Object value, Class<?> type, ZoneId zone) throws SQLException {

@@ -3,6 +3,7 @@ package com.falkordb.jdbc;
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLClientInfoException;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
@@ -231,6 +232,20 @@ class ConnectionIT {
     @Nested
     @DisplayName("JDBC argument validation")
     class Arguments {
+
+        @Test
+        void refuseClientInfoAfterClose() throws SQLException {
+            Connection closed = TestServer.connect("jdbc-client-info");
+            closed.close();
+
+            assertThatThrownBy(() -> closed.setClientInfo("ApplicationName", "app"))
+                    .isInstanceOf(SQLClientInfoException.class)
+                    .satisfies(e -> assertThat(((SQLClientInfoException) e).getFailedProperties())
+                            .containsKey("ApplicationName"));
+            assertThatThrownBy(() -> closed.setClientInfo(new java.util.Properties()))
+                    .isInstanceOf(SQLClientInfoException.class);
+            assertThatThrownBy(closed::getClientInfo).isInstanceOf(SQLException.class);
+        }
 
         @Test
         void rejectsHoldCursorsOverCommit() {

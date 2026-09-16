@@ -313,6 +313,49 @@ class FalkorTypeTest {
     }
 
     @Nested
+    @DisplayName("isSigned")
+    class Signedness {
+
+        @Test
+        void coversEveryNumericType() {
+            assertThat(FalkorType.INTEGER.isSigned()).isTrue();
+            assertThat(FalkorType.DOUBLE.isSigned()).isTrue();
+            // A vector's elements are REAL, and a metadata column may be SMALLINT or INTEGER; all
+            // are numeric, so none of them may be reported unsigned.
+            assertThat(FalkorType.FLOAT32.isSigned()).isTrue();
+            assertThat(FalkorType.METADATA_SMALLINT.isSigned()).isTrue();
+            assertThat(FalkorType.METADATA_INTEGER.isSigned()).isTrue();
+        }
+
+        @Test
+        void leavesNonNumericTypesUnsigned() {
+            assertThat(FalkorType.STRING.isSigned()).isFalse();
+            assertThat(FalkorType.BOOLEAN.isSigned()).isFalse();
+            assertThat(FalkorType.ARRAY.isSigned()).isFalse();
+            assertThat(FalkorType.NODE.isSigned()).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("isColumnType")
+    class ColumnTypes {
+
+        @Test
+        void excludesTheHelperConstants() {
+            assertThat(FalkorType.FLOAT32.isColumnType()).isFalse();
+            assertThat(FalkorType.METADATA_SMALLINT.isColumnType()).isFalse();
+            assertThat(FalkorType.METADATA_INTEGER.isColumnType()).isFalse();
+        }
+
+        @Test
+        void keepsEveryTypeAQueryCanReturn() {
+            assertThat(FalkorType.STRING.isColumnType()).isTrue();
+            assertThat(FalkorType.VECTORF32.isColumnType()).isTrue();
+            assertThat(FalkorType.DURATION.isColumnType()).isTrue();
+        }
+    }
+
+    @Nested
     @DisplayName("declared type names")
     class Names {
 

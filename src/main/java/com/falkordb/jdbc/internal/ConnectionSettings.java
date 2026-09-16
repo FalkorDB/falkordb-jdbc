@@ -489,6 +489,61 @@ public record ConnectionSettings(
     }
 
     /**
+     * Reports the effective value of one known property, for {@link
+     * java.sql.Driver#getPropertyInfo(String, Properties)}.
+     *
+     * <p>Reading it back off the parsed settings means the answer already reflects the URL, the
+     * supplied properties and the precedence between them, rather than restating that logic.
+     *
+     * <p>The password is deliberately absent. {@code DriverPropertyInfo} is handed to tools that
+     * display and log it, and the driver redacts credentials everywhere else.
+     *
+     * @param name one of the {@link #KNOWN_PROPERTIES} names
+     * @return the value that would be used, or empty if unset or not reportable
+     */
+    public Optional<String> valueOf(String name) {
+        return switch (name) {
+            case PROP_USER -> user;
+            case PROP_GRAPH -> Optional.of(graphName);
+            case PROP_SSL -> Optional.of(Boolean.toString(ssl));
+            case PROP_READ_ONLY -> Optional.of(Boolean.toString(readOnly));
+            case PROP_CONNECTION_TIMEOUT -> connectionTimeout.map(d -> Long.toString(d.toMillis()));
+            case PROP_SOCKET_TIMEOUT -> socketTimeout.map(d -> Long.toString(d.toMillis()));
+            case PROP_POOL_MAX_WAIT -> poolMaxWait.map(d -> Long.toString(d.toMillis()));
+            case PROP_QUERY_TIMEOUT -> queryTimeoutMillis.stream()
+                    .mapToObj(Long::toString)
+                    .findFirst();
+            case PROP_POOL_MAX_TOTAL -> poolMaxTotal.stream()
+                    .mapToObj(Integer::toString)
+                    .findFirst();
+            case PROP_POOL_MAX_IDLE -> poolMaxIdle.stream()
+                    .mapToObj(Integer::toString)
+                    .findFirst();
+            default -> Optional.empty();
+        };
+    }
+
+    /**
+     * Percent-encodes a component for the rebuilt URL.
+     *
+     * <p>{@link #parse} accepts percent-encoded reserved characters, so a user of {@code a@b} or a
+     * graph named {@code my graph} are both legal. Writing the decoded form straight back would
+     * produce a URL that no longer parses to the same settings.
+     */
+    private static String encode(String component) {
+        StringBuilder out = new StringBuilder(component.length());
+        for (byte b : component.getBytes(StandardCharsets.UTF_8)) {
+            char c = (char) (b & 0xFF);
+            if (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || "-._~".indexOf(c) >= 0) {
+                out.append(c);
+            } else {
+                out.append('%').append(String.format("%02X", b & 0xFF));
+            }
+        }
+        return out.toString();
+    }
+
+    /**
      * Renders the settings back as a JDBC URL, with any password elided. Used for diagnostics and by
      * {@link java.sql.DatabaseMetaData#getURL()}.
      *
@@ -497,9 +552,10 @@ public record ConnectionSettings(
     public String toRedactedUrl() {
         StringBuilder sb = new StringBuilder("jdbc:").append(ssl ? "falkordb+ssl" : SCHEME_PLAIN);
         sb.append("://");
-        user.ifPresent(
-                u -> sb.append(u).append(password.isPresent() ? ":*****" : "").append('@'));
-        sb.append(host).append(':').append(port).append('/').append(graphName);
+        user.ifPresent(u -> sb.append(encode(u))
+                .append(password.isPresent() ? ":*****" : "")
+                .append('@'));
+        sb.append(host).append(':').append(port).append('/').append(encode(graphName));
         List<String> params = new ArrayList<>();
         if (readOnly) {
             params.add(PROP_READ_ONLY + "=true");

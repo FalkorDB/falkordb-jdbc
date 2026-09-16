@@ -256,9 +256,23 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         setObject(parameterIndex, x);
     }
 
+    /**
+     * Binds a date read in the supplied calendar's time zone.
+     *
+     * <p>A {@link Date} is an instant, so the calendar decides which calendar day it falls on. The
+     * matching {@code ResultSet} getter honours its calendar, and a value has to survive a round trip
+     * through both.
+     *
+     * @param parameterIndex the parameter, 1-based
+     * @param x the value, or {@code null}
+     * @param cal the calendar to read {@code x} in, or {@code null} for the default zone
+     * @throws SQLException if the parameter is out of range or the statement is closed
+     */
     @Override
     public void setDate(int parameterIndex, Date x, Calendar cal) throws SQLException {
-        setObject(parameterIndex, x);
+        setObject(
+                parameterIndex,
+                x == null || cal == null ? x : instantIn(x.getTime(), cal).toLocalDate());
     }
 
     @Override
@@ -266,9 +280,19 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         setObject(parameterIndex, x);
     }
 
+    /**
+     * Binds a time read in the supplied calendar's time zone.
+     *
+     * @param parameterIndex the parameter, 1-based
+     * @param x the value, or {@code null}
+     * @param cal the calendar to read {@code x} in, or {@code null} for the default zone
+     * @throws SQLException if the parameter is out of range or the statement is closed
+     */
     @Override
     public void setTime(int parameterIndex, Time x, Calendar cal) throws SQLException {
-        setObject(parameterIndex, x);
+        setObject(
+                parameterIndex,
+                x == null || cal == null ? x : instantIn(x.getTime(), cal).toLocalTime());
     }
 
     @Override
@@ -276,9 +300,28 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         setObject(parameterIndex, x);
     }
 
+    /**
+     * Binds a timestamp read in the supplied calendar's time zone.
+     *
+     * @param parameterIndex the parameter, 1-based
+     * @param x the value, or {@code null}
+     * @param cal the calendar to read {@code x} in, or {@code null} for the default zone
+     * @throws SQLException if the parameter is out of range or the statement is closed
+     */
     @Override
     public void setTimestamp(int parameterIndex, Timestamp x, Calendar cal) throws SQLException {
-        setObject(parameterIndex, x);
+        if (x == null || cal == null) {
+            setObject(parameterIndex, x);
+            return;
+        }
+        // Timestamp carries nanoseconds that its epoch-milli value does not, so they are restored.
+        setObject(parameterIndex, instantIn(x.getTime(), cal).withNano(x.getNanos()));
+    }
+
+    /** Reads an epoch-milli instant as a local date-time in the calendar's zone. */
+    private static LocalDateTime instantIn(long epochMillis, Calendar cal) {
+        return LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(epochMillis), cal.getTimeZone().toZoneId());
     }
 
     @Override

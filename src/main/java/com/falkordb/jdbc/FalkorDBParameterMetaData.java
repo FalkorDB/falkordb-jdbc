@@ -32,10 +32,20 @@ public final class FalkorDBParameterMetaData extends FalkorDBWrapper implements 
         return parameterNullableUnknown;
     }
 
+    /**
+     * Always {@code false}. A Cypher parameter has no declared type — this metadata reports every
+     * parameter as {@link java.sql.Types#OTHER} — so it may just as well be bound to a string, a
+     * list or a map. Claiming it is a signed number would assert a numeric contract the driver
+     * cannot know holds.
+     *
+     * @param param the parameter, 1-based
+     * @return {@code false}
+     * @throws SQLException if {@code param} is out of range
+     */
     @Override
     public boolean isSigned(int param) throws SQLException {
         check(param);
-        return true;
+        return false;
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.falkordb.jdbc;
 
 import java.io.IOException;
 import java.sql.CallableStatement;
+import java.sql.ClientInfoStatus;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -95,6 +96,9 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
         try (redis.clients.jedis.Jedis probe = driver.getConnection()) {
             probe.ping();
         } catch (RuntimeException e) {
+            // Mirror close(): the graph is released before the pool, so this failure path cannot
+            // diverge from the normal one if JFalkorDB ever gives the graph handle its own state.
+            closeQuietly(graph);
             closeQuietly();
             throw SQLErrors.connectionFailed(
                     "Failed to connect to FalkorDB at " + settings.host() + ":" + settings.port(), e);
@@ -467,6 +471,10 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
 
     @Override
     public void setClientInfo(String name, String value) throws SQLClientInfoException {
+        requireOpenForClientInfo(name == null ? Set.of() : Set.of(name));
+        if (name == null) {
+            throw new SQLClientInfoException("Client info name must not be null", Map.of());
+        }
         if (value == null) {
             clientInfo.remove(name);
         } else {
@@ -476,10 +484,29 @@ public final class FalkorDBConnection extends FalkorDBWrapper implements Connect
 
     @Override
     public void setClientInfo(Properties properties) throws SQLClientInfoException {
+        requireOpenForClientInfo(properties == null ? Set.of() : properties.stringPropertyNames());
         clientInfo.clear();
         if (properties != null) {
             clientInfo.putAll(properties);
         }
+    }
+
+    /**
+     * Refuses a client-info update on a closed connection.
+     *
+     * <p>JDBC requires this to be reported as a {@link SQLClientInfoException} carrying the status of
+     * every property that could not be set, so a pool that configures a connection after closing it
+     * sees a failure rather than a silent write.
+     */
+    private void requireOpenForClientInfo(Set<String> names) throws SQLClientInfoException {
+        if (!closed) {
+            return;
+        }
+        Map<String, ClientInfoStatus> failures = new java.util.HashMap<>();
+        for (String name : names) {
+            failures.put(name, ClientInfoStatus.REASON_UNKNOWN);
+        }
+        throw new SQLClientInfoException("Connection is closed", SQLErrors.STATE_OBJECT_CLOSED, failures);
     }
 
     @Override

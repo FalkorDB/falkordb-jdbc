@@ -185,7 +185,35 @@ public enum FalkorType {
      * @return {@code true} for the numeric types
      */
     public boolean isSigned() {
-        return this == INTEGER || this == DOUBLE;
+        // Derived from the SQL type rather than listed by constant, so a new numeric constant cannot
+        // be added without it being reported correctly.
+        return switch (sqlType) {
+            case Types.TINYINT,
+                    Types.SMALLINT,
+                    Types.INTEGER,
+                    Types.BIGINT,
+                    Types.REAL,
+                    Types.FLOAT,
+                    Types.DOUBLE,
+                    Types.DECIMAL,
+                    Types.NUMERIC -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Whether this type can be the type of a column the driver returns, which is what {@link
+     * java.sql.DatabaseMetaData#getTypeInfo()} lists.
+     *
+     * <p>Two kinds of constant are not: the metadata-only helpers, and {@link #FLOAT32}, which
+     * exists solely to describe the elements of a {@code vecf32} vector. FalkorDB has no 32-bit
+     * scalar — {@link #of} classifies a lone {@code Float} as {@link #DOUBLE} — so advertising
+     * {@code REAL} as a type would offer tools a column and parameter type that cannot exist.
+     *
+     * @return {@code true} if a query can return a column of this type
+     */
+    public boolean isColumnType() {
+        return !metadataOnly() && this != FLOAT32;
     }
 
     /**

@@ -259,6 +259,44 @@ class PreparedStatementIT {
     class Setters {
 
         @Test
+        void honourACalendarWhenBindingATimestamp() throws SQLException {
+            java.util.Calendar utc = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+            java.util.Calendar tokyo = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Tokyo"));
+            java.sql.Timestamp instant = java.sql.Timestamp.from(java.time.Instant.parse("2024-03-01T15:30:00Z"));
+
+            assertThat(boundTimestamp(instant, utc)).isEqualTo("2024-03-01T15:30");
+            // The same instant is the next day in Tokyo, and the calendar is what decides.
+            assertThat(boundTimestamp(instant, tokyo)).isEqualTo("2024-03-02T00:30");
+        }
+
+        @Test
+        void honourACalendarWhenBindingADate() throws SQLException {
+            java.util.Calendar utc = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+            java.sql.Date date = new java.sql.Date(
+                    java.time.Instant.parse("2024-03-01T23:30:00Z").toEpochMilli());
+
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS bound")) {
+                statement.setDate(1, date, utc);
+
+                try (ResultSet results = statement.executeQuery()) {
+                    results.next();
+                    assertThat(results.getString("bound")).isEqualTo("2024-03-01");
+                }
+            }
+        }
+
+        private String boundTimestamp(java.sql.Timestamp value, java.util.Calendar cal) throws SQLException {
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS bound")) {
+                statement.setTimestamp(1, value, cal);
+
+                try (ResultSet results = statement.executeQuery()) {
+                    results.next();
+                    return results.getString("bound");
+                }
+            }
+        }
+
+        @Test
         void setNullBindsCypherNull() throws SQLException {
             try (PreparedStatement statement = connection.prepareStatement("RETURN ? IS NULL AS missing")) {
                 statement.setNull(1, Types.VARCHAR);

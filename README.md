@@ -256,6 +256,11 @@ Each of these throws `SQLFeatureNotSupportedException` — the driver never sile
 `setMaxRows` is accepted but cannot be enforced — FalkorDB materialises a whole response before the
 driver sees it — so it raises a `SQLWarning` and leaves the rows intact. Use a Cypher `LIMIT`.
 
+The `supports*` flags on `DatabaseMetaData` that describe **SQL grammar** all report `false`,
+including `supportsColumnAliasing` and `supportsTableCorrelationNames`. Cypher spells aliasing and
+correlation names the way SQL does, but a tool that trusted a `true` there would generate SQL, and
+this driver accepts only Cypher. They will be revisited if a translation layer is added.
+
 ## Future work
 
 - **SQL-to-Cypher translation** (`enableSQLTranslation`), so existing SQL tooling can query a graph

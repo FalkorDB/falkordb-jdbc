@@ -127,6 +127,53 @@ class FalkorDBDriverTest {
         }
 
         @Test
+        void reflectsValuesWrittenInTheUrl() throws SQLException {
+            DriverPropertyInfo[] info =
+                    driver.getPropertyInfo("jdbc:falkordb://localhost/social?ssl=true&socketTimeout=2000", null);
+
+            assertThat(valueOf(info, "ssl")).isEqualTo("true");
+            assertThat(valueOf(info, "socketTimeout")).isEqualTo("2000");
+            assertThat(valueOf(info, "graph")).isEqualTo("social");
+        }
+
+        @Test
+        void letsASuppliedPropertyWinOverTheUrl() throws SQLException {
+            Properties supplied = new Properties();
+            supplied.setProperty("graph", "other");
+
+            DriverPropertyInfo[] info = driver.getPropertyInfo("jdbc:falkordb://localhost/social", supplied);
+
+            assertThat(valueOf(info, "graph")).isEqualTo("other");
+        }
+
+        @Test
+        void neverEchoesThePassword() throws SQLException {
+            Properties supplied = new Properties();
+            supplied.setProperty("password", "hunter2");
+
+            DriverPropertyInfo[] info = driver.getPropertyInfo("jdbc:falkordb://localhost/social", supplied);
+
+            assertThat(Arrays.stream(info).map(p -> p.name)).contains("password");
+            assertThat(valueOf(info, "password")).isNull();
+        }
+
+        @Test
+        void stillDescribesPropertiesForAnUnparseableUrl() throws SQLException {
+            DriverPropertyInfo[] info = driver.getPropertyInfo("jdbc:falkordb://localhost/g?bogus=1", null);
+
+            assertThat(info).isNotEmpty();
+            assertThat(Arrays.stream(info).map(p -> p.name)).contains("ssl");
+        }
+
+        private String valueOf(DriverPropertyInfo[] info, String name) {
+            return Arrays.stream(info)
+                    .filter(p -> p.name.equals(name))
+                    .findFirst()
+                    .orElseThrow()
+                    .value;
+        }
+
+        @Test
         void offersBooleanChoicesForFlags() throws SQLException {
             DriverPropertyInfo[] info = driver.getPropertyInfo("jdbc:falkordb://localhost/social", new Properties());
 

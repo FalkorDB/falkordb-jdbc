@@ -10,11 +10,14 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -337,16 +340,26 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         String graph = connection.graphName();
         List<List<Object>> rows = new ArrayList<>();
 
+        List<String> names = new ArrayList<>();
+        List<String> matches = new ArrayList<>();
         for (String label : labelsInUse()) {
             if (tables.matcher(label).matches()) {
-                collectProperties(graph, label, "MATCH (e:`" + escape(label) + "`)", properties, rows);
+                names.add(label);
+                matches.add("MATCH (e:`" + escape(label) + "`)");
             }
         }
         for (String type : relationshipTypesInUse()) {
             if (tables.matcher(type).matches()) {
-                collectProperties(graph, type, "MATCH ()-[e:`" + escape(type) + "`]->()", properties, rows);
+                names.add(type);
+                matches.add("MATCH ()-[e:`" + escape(type) + "`]->()");
             }
         }
+        collectProperties(graph, names, matches, properties, rows);
+        // JDBC fixes this ordering, and tools rely on it to pair a column with its position.
+        rows.sort(Comparator.comparing((List<Object> row) -> String.valueOf(row.get(0)))
+                .thenComparing(row -> String.valueOf(row.get(1)))
+                .thenComparing(row -> String.valueOf(row.get(2)))
+                .thenComparingLong(row -> (Long) row.get(16)));
         return result(columns, rows);
     }
 
@@ -376,22 +389,61 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
     }
 
     private void collectProperties(
-            String graph, String table, String match, Pattern properties, List<List<Object>> into) throws SQLException {
-        String cypher = match + " WITH e LIMIT " + SAMPLE_LIMIT
-                + " UNWIND keys(e) AS key RETURN key, collect(DISTINCT e[key]) AS samples, count(*) AS present";
-        int ordinal = 0;
-        for (Record record : query(cypher)) {
-            Object key = record.getValue(0);
-            if (key == null || !properties.matcher(key.toString()).matches()) {
+            String graph, List<String> tables, List<String> matches, Pattern properties, List<List<Object>> into)
+            throws SQLException {
+        if (tables.isEmpty()) {
+            return;
+        }
+        // One sampling query per label is what BI tools feel when they poll getColumns, so every
+        // table's sample is asked for in a single round trip. The branches are tagged by position
+        // rather than by name because a label and a relationship type may share one.
+        StringBuilder cypher = new StringBuilder();
+        for (int i = 0; i < matches.size(); i++) {
+            if (i > 0) {
+                cypher.append(" UNION ALL ");
+            }
+            cypher.append(matches.get(i))
+                    .append(" WITH e LIMIT ")
+                    .append(SAMPLE_LIMIT)
+                    .append(" UNWIND keys(e) AS key RETURN ")
+                    .append(i)
+                    .append(" AS tag, key, collect(DISTINCT e[key]) AS samples");
+        }
+        Map<Integer, Map<String, Object>> sampled = new LinkedHashMap<>();
+        for (Record record : query(cypher.toString())) {
+            Object tag = record.getValue(0);
+            Object key = record.getValue(1);
+            if (!(tag instanceof Number index) || key == null) {
                 continue;
             }
-            FalkorType type = sampledType(record.getValue(1));
-            ordinal++;
+            // A sorted map because a graph has no column order of its own: keys(e) may answer in a
+            // different order each call, and ORDINAL_POSITION has to be stable between them.
+            sampled.computeIfAbsent(index.intValue(), i -> new TreeMap<>()).put(key.toString(), record.getValue(2));
+        }
+        for (Map.Entry<Integer, Map<String, Object>> entry : sampled.entrySet()) {
+            String table = tables.get(entry.getKey());
+            int ordinal = 0;
+            for (Map.Entry<String, Object> property : entry.getValue().entrySet()) {
+                String key = property.getKey();
+                // Counted before the filter: ORDINAL_POSITION is the property's place in the table,
+                // and asking for a subset of columns must not renumber them.
+                ordinal++;
+                if (!properties.matcher(key).matches()) {
+                    continue;
+                }
+                appendColumn(graph, table, key, sampledType(property.getValue()), ordinal, into);
+            }
+        }
+    }
+
+    private void appendColumn(
+            String graph, String table, String key, FalkorType type, int ordinal, List<List<Object>> into) {
+        {
             List<Object> row = new ArrayList<>(24);
             row.add(graph);
             row.add(null);
             row.add(table);
-            row.add(key.toString());
+            row.add(key);
             row.add((long) type.sqlType());
             row.add(type.typeName());
             row.add((long) type.precision());
@@ -477,6 +529,11 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
                 rows.add(row);
             }
         }
+        // JDBC fixes this ordering: NON_UNIQUE, TYPE, INDEX_NAME, then ORDINAL_POSITION.
+        rows.sort(Comparator.comparing((List<Object> row) -> (Boolean) row.get(3))
+                .thenComparingLong(row -> (Long) row.get(6))
+                .thenComparing(row -> String.valueOf(row.get(5)))
+                .thenComparingLong(row -> (Long) row.get(7)));
         return result(columns, rows);
     }
 
@@ -525,6 +582,11 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
             row.add(procedure);
             rows.add(row);
         }
+        // JDBC fixes this ordering: catalog, schema, name, then the specific name.
+        rows.sort(Comparator.comparing((List<Object> row) -> String.valueOf(row.get(0)))
+                .thenComparing(row -> String.valueOf(row.get(1)))
+                .thenComparing(row -> String.valueOf(row.get(2)))
+                .thenComparing(row -> String.valueOf(row.get(8))));
         return result(columns, rows);
     }
 
@@ -552,7 +614,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
                 col("getTypeInfo", "NUM_PREC_RADIX"));
         List<List<Object>> rows = new ArrayList<>();
         for (FalkorType type : FalkorType.values()) {
-            if (type == FalkorType.NULL || type == FalkorType.UNKNOWN || type.metadataOnly()) {
+            if (type == FalkorType.NULL || type == FalkorType.UNKNOWN || !type.isColumnType()) {
                 continue;
             }
             boolean text = type == FalkorType.STRING;
@@ -1359,7 +1421,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public boolean supportsColumnAliasing() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1379,7 +1441,7 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
 
     @Override
     public boolean supportsTableCorrelationNames() {
-        return true;
+        return false;
     }
 
     @Override
@@ -1392,7 +1454,10 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
      * and has no SQL-to-Cypher translation, so it reports {@code false} for all of them, matching
      * {@link #supportsMinimumSQLGrammar()}. Cypher has its own {@code ORDER BY}, aggregation and
      * {@code UNION}, but a client that took a {@code true} here would generate SQL this driver
-     * cannot execute. These will be revisited if a translation layer is added.
+     * cannot execute. That includes column aliasing and table correlation names: Cypher spells both
+     * of them the same way SQL does, but a tool told they are supported emits {@code SELECT a AS b
+     * FROM t x}, which this driver rejects like any other SQL. These will be revisited if a
+     * translation layer is added.
      */
     @Override
     public boolean supportsExpressionsInOrderBy() {

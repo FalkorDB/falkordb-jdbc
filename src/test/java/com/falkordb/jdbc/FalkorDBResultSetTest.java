@@ -258,6 +258,24 @@ class FalkorDBResultSetTest {
         }
 
         @Test
+        void answersAPrimitiveClassLiteralWithItsWrapper() throws SQLException {
+            ResultSet rs = oneRow(FalkorType.INTEGER, 7L);
+
+            // int.class is typed Class<Integer>, so this compiles and callers write it.
+            assertThat(rs.getObject(1, int.class)).isEqualTo(7);
+            assertThat(rs.getObject(1, long.class)).isEqualTo(7L);
+            assertThat(rs.getObject(1, double.class)).isEqualTo(7.0d);
+            assertThat(rs.getObject(1, short.class)).isEqualTo((short) 7);
+        }
+
+        @Test
+        void answersAPrimitiveBooleanLiteral() throws SQLException {
+            ResultSet rs = oneRow(FalkorType.BOOLEAN, true);
+
+            assertThat(rs.getObject(1, boolean.class)).isEqualTo(true);
+        }
+
+        @Test
         void booleans() throws SQLException {
             ResultSet rs = oneRow(FalkorType.BOOLEAN, true);
 

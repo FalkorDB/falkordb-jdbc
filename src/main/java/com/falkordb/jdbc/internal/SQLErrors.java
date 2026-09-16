@@ -6,6 +6,8 @@ import java.sql.SQLInvalidAuthorizationSpecException;
 import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLTimeoutException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 import redis.clients.jedis.exceptions.JedisConnectionException;
@@ -172,8 +174,10 @@ public final class SQLErrors {
      *
      * <p>When there is no {@code @} anywhere, the text after that {@code :} is either a password
      * whose delimiter was left out or simply a malformed port. Nothing in the URL tells the two
-     * apart, and only one of them is safe to print, so it is masked to the end of the authority.
-     * The reason still reports that the port was not a number; it just does not quote it.
+     * apart, and only one of them is safe to print, so it is masked — to the end of the URL, not
+     * the end of the authority, because the same unescaped delimiter that would hide the tail of
+     * such a password is also what moves that boundary. The reason still reports that the port was
+     * not a number; it just does not quote it.
      */
     private static int[] passwordSpan(String url) {
         int authority = url.indexOf("//");
@@ -199,7 +203,10 @@ public final class SQLErrors {
                 return null;
             }
             at = url.lastIndexOf('@');
-            return new int[] {authority + colon + 1, at < authority ? end : at};
+            // With no "@" anywhere there is nothing to say where the password stopped: an
+            // unescaped delimiter inside it is also what moved the authority boundary, so stopping
+            // at that boundary would leave the tail behind. Mask the rest of the URL.
+            return new int[] {authority + colon + 1, at < authority ? url.length() : at};
         }
         if (colon > at) {
             // The only colon precedes the port, so the userinfo is a bare user name.
@@ -214,17 +221,27 @@ public final class SQLErrors {
     }
 
     /**
-     * Masks any quoted fragment of {@code reason} that was cut from the URL across its password.
+     * Masks any quoted fragment of {@code reason} that carries part of a credential.
      *
-     * <p>A reason routinely quotes the text it objected to, and that text is a slice of the raw URL.
-     * When an unescaped delimiter inside a password makes the parser read part of it as something
-     * else — a query parameter name, say — the quoted slice carries the password with it, and
-     * redacting the URL alone would not stop it from reaching a log. Only a fragment that really
-     * does overlap the password is masked, so ordinary reasons keep saying what went wrong.
+     * <p>A reason routinely quotes the text it objected to, and that text comes from the URL. When
+     * an unescaped delimiter inside a password makes the parser read part of it as something else —
+     * a query parameter name, say — the quoted slice carries the password with it, and redacting
+     * the URL alone would not stop it from reaching a log.
+     *
+     * <p>Two tests are needed because a quoted fragment reaches the reason by two routes. A slice
+     * cut straight from the URL is caught by comparing positions: it is masked only if it really
+     * does overlap the userinfo password. A fragment the parser <em>decoded</em> first is not a
+     * substring of the raw URL at all — {@code ?password%3Dsecret} is reported as {@code
+     * password=secret} — so it is compared against the credential values themselves instead.
+     * Anything else is left alone, so ordinary reasons keep saying what went wrong.
      */
     private static String maskQuotedSecrets(String reason, String url) {
+        if (reason == null) {
+            return null;
+        }
         int[] password = passwordSpan(url);
-        if (reason == null || password == null) {
+        List<String> secrets = passwordValues(url);
+        if (password == null && secrets.isEmpty()) {
             return reason;
         }
         StringBuilder masked = new StringBuilder(reason.length());
@@ -236,17 +253,75 @@ public final class SQLErrors {
                 return masked.append(reason, from, reason.length()).toString();
             }
             String quoted = reason.substring(open + 1, close);
-            int at = quoted.isEmpty() ? -1 : url.indexOf(quoted);
-            boolean secret = false;
-            while (at >= 0 && !secret) {
-                secret = at < password[1] && at + quoted.length() > password[0];
-                at = url.indexOf(quoted, at + 1);
-            }
             masked.append(reason, from, open + 1)
-                    .append(secret ? "***" : quoted)
+                    .append(carriesSecret(quoted, url, password, secrets) ? "***" : quoted)
                     .append('"');
             from = close + 1;
         }
+    }
+
+    private static boolean carriesSecret(String quoted, String url, int[] password, List<String> secrets) {
+        if (quoted.isEmpty()) {
+            return false;
+        }
+        for (String secret : secrets) {
+            if (!secret.isEmpty() && quoted.contains(secret)) {
+                return true;
+            }
+        }
+        if (password == null) {
+            return false;
+        }
+        for (int at = url.indexOf(quoted); at >= 0; at = url.indexOf(quoted, at + 1)) {
+            if (at < password[1] && at + quoted.length() > password[0]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Collects the values of any {@code password} query parameter, raw and decoded, so a reason that
+     * quotes either spelling can be recognised.
+     */
+    private static List<String> passwordValues(String url) {
+        int start = url.indexOf('?');
+        if (start < 0) {
+            return List.of();
+        }
+        int end = url.indexOf('#', start);
+        String query = end < 0 ? url.substring(start + 1) : url.substring(start + 1, end);
+        List<String> values = new ArrayList<>();
+        for (String pair : query.split("&", -1)) {
+            String value = passwordValue(pair);
+            if (value != null) {
+                values.add(value);
+                String decoded = decodeLoosely(value);
+                if (!decoded.equals(value)) {
+                    values.add(decoded);
+                }
+            }
+        }
+        return values;
+    }
+
+    /**
+     * Returns the raw value of {@code pair} when it names the password, or {@code null}.
+     *
+     * <p>The {@code =} itself may be percent-encoded, in which case the raw pair has no separator at
+     * all and only the decoded form shows that it is a password being set.
+     */
+    private static String passwordValue(String pair) {
+        int eq = pair.indexOf('=');
+        if (eq >= 0) {
+            return "password".equalsIgnoreCase(decodeLoosely(pair.substring(0, eq))) ? pair.substring(eq + 1) : null;
+        }
+        String decoded = decodeLoosely(pair);
+        int decodedEq = decoded.indexOf('=');
+        if (decodedEq < 0 || !"password".equalsIgnoreCase(decoded.substring(0, decodedEq))) {
+            return null;
+        }
+        return decoded.substring(decodedEq + 1);
     }
 
     private static boolean isPort(String text) {
@@ -285,10 +360,14 @@ public final class SQLErrors {
             }
             String pair = pairs[i];
             int eq = pair.indexOf('=');
-            if (eq >= 0 && "password".equalsIgnoreCase(decodeLoosely(pair.substring(0, eq)))) {
+            if (passwordValue(pair) == null) {
+                masked.append(pair);
+            } else if (eq >= 0) {
                 masked.append(pair, 0, eq + 1).append("***");
             } else {
-                masked.append(pair);
+                // The "=" is percent-encoded, so there is no separator to keep the name on the
+                // readable side of; the whole pair goes.
+                masked.append("***");
             }
         }
         if (end >= 0) {

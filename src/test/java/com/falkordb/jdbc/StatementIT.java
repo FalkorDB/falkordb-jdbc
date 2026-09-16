@@ -312,6 +312,51 @@ class StatementIT {
     class Contracts {
 
         @Test
+        void survivesAResultSetClosingWhileTheStatementDoes() throws Exception {
+            // A pool closing a connection from a reaper thread while the borrowing thread is still
+            // closing what it produced walks the same set from both sides. Unguarded, the copy
+            // taken by close() throws ConcurrentModificationException.
+            for (int attempt = 0; attempt < 40; attempt++) {
+                Statement statement = connection.createStatement();
+                List<ResultSet> keys = new ArrayList<>();
+                for (int i = 0; i < 64; i++) {
+                    keys.add(statement.getGeneratedKeys());
+                }
+                java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+                List<Throwable> failures = java.util.Collections.synchronizedList(new ArrayList<>());
+                Runnable closeKeys = () -> {
+                    try {
+                        start.await();
+                        for (ResultSet rows : keys) {
+                            rows.close();
+                        }
+                    } catch (Throwable t) {
+                        failures.add(t);
+                    }
+                };
+                Runnable closeStatement = () -> {
+                    try {
+                        start.await();
+                        statement.close();
+                    } catch (Throwable t) {
+                        failures.add(t);
+                    }
+                };
+                Thread a = new Thread(closeKeys);
+                Thread b = new Thread(closeStatement);
+                a.start();
+                b.start();
+                start.countDown();
+                a.join();
+                b.join();
+
+                assertThat(failures).isEmpty();
+                assertThat(statement.isClosed()).isTrue();
+                assertThat(keys).allSatisfy(rows -> assertThat(rows.isClosed()).isTrue());
+            }
+        }
+
+        @Test
         void keepsALargeRowLimitExactly() throws SQLException {
             try (Statement statement = connection.createStatement()) {
                 long beyondInt = Integer.MAX_VALUE + 1L;

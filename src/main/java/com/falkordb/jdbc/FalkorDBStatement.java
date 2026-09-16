@@ -44,7 +44,14 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
      * closed, and {@link #close()} has to close whatever is left, so a single reference is not
      * enough. Identity, not equality: two result sets are the same only if they are the same object.
      */
+    // Guarded by dependentsLock, for the reason FalkorDBConnection guards its statements: a pool
+    // may close a connection from a reaper thread while the borrowing thread is still closing what
+    // it produced, and iterating this set while that thread removes itself from it would throw.
+    // The lock is never held across a call out to a result set or to the connection, so it cannot
+    // deadlock against the connection's own lock.
     private final Set<FalkorDBResultSet> dependents = Collections.newSetFromMap(new IdentityHashMap<>());
+
+    private final Object dependentsLock = new Object();
 
     private long updateCount = NO_UPDATE_COUNT;
     private int queryTimeoutSeconds;
@@ -52,7 +59,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     private int fetchSize;
     private boolean poolable;
     private boolean closeOnCompletion;
-    private boolean closed;
+    private volatile boolean closed;
     private SQLWarning warnings;
 
     FalkorDBStatement(FalkorDBConnection connection) {
@@ -136,7 +143,9 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
                                 + maxRows + "; FalkorDB returns a whole response at once, so no rows were discarded",
                         SQLErrors.STATE_GENERAL));
             }
-            dependents.add(rows);
+            synchronized (dependentsLock) {
+                dependents.add(rows);
+            }
             resultSet = rows;
         }
     }
@@ -210,11 +219,15 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
      * dependent result sets has gone, which is what JDBC specifies.
      */
     void resultSetClosed(FalkorDBResultSet source) throws SQLException {
-        dependents.remove(source);
-        if (resultSet == source) {
-            resultSet = null;
+        boolean last;
+        synchronized (dependentsLock) {
+            dependents.remove(source);
+            if (resultSet == source) {
+                resultSet = null;
+            }
+            last = closeOnCompletion && !closed && dependents.isEmpty();
         }
-        if (closeOnCompletion && !closed && dependents.isEmpty()) {
+        if (last) {
             close();
         }
     }
@@ -234,7 +247,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         }
         if (current == CLOSE_ALL_RESULTS) {
             // Including any retained by an earlier KEEP_CURRENT_RESULT, and any generated keys.
-            for (FalkorDBResultSet dependent : List.copyOf(dependents)) {
+            for (FalkorDBResultSet dependent : snapshotDependents()) {
                 dependent.close();
             }
         } else if (current == CLOSE_CURRENT_RESULT) {
@@ -261,7 +274,9 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     public ResultSet getGeneratedKeys() throws SQLException {
         checkOpen();
         FalkorDBResultSet keys = new FalkorDBResultSet(List.of(), List.of(), this);
-        dependents.add(keys);
+        synchronized (dependentsLock) {
+            dependents.add(keys);
+        }
         return keys;
     }
 
@@ -476,20 +491,33 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
 
     @Override
     public void close() throws SQLException {
-        if (closed) {
-            return;
+        List<FalkorDBResultSet> open;
+        synchronized (dependentsLock) {
+            if (closed) {
+                return;
+            }
+            // Set before closing the result sets: those calls come back through resultSetClosed(),
+            // and the flag is what stops closeOnCompletion from recursing. Taking the flag and the
+            // snapshot together is also what makes a concurrent close a no-op rather than a second
+            // pass over the same result sets.
+            closed = true;
+            // Close every result set still open, not just the current one: getMoreResults(
+            // KEEP_CURRENT_RESULT) and getGeneratedKeys() both hand out ones this field does not
+            // hold.
+            open = List.copyOf(dependents);
+            dependents.clear();
         }
-        // Set before closing the result set: that call comes back through resultSetClosed(), and the
-        // flag is what stops closeOnCompletion from recursing.
-        closed = true;
-        // Close every result set still open, not just the current one: getMoreResults(
-        // KEEP_CURRENT_RESULT) and getGeneratedKeys() both hand out ones this field does not hold.
-        for (FalkorDBResultSet dependent : List.copyOf(dependents)) {
+        for (FalkorDBResultSet dependent : open) {
             dependent.close();
         }
-        dependents.clear();
         resultSet = null;
         connection.forget(this);
+    }
+
+    private List<FalkorDBResultSet> snapshotDependents() {
+        synchronized (dependentsLock) {
+            return List.copyOf(dependents);
+        }
     }
 
     @Override

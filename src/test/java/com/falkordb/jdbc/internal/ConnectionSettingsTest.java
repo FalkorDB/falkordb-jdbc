@@ -370,6 +370,7 @@ class ConnectionSettingsTest {
             assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining("***")
+                    .hasMessageNotContaining("hun")
                     .hasMessageNotContaining("ter2");
         }
 

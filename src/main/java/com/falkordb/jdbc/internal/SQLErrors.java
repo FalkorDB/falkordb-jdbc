@@ -169,6 +169,11 @@ public final class SQLErrors {
      * right-hand side is not a port, the delimiter is looked for in the rest of the URL instead. A
      * {@code :} that is a port separator means there is no userinfo, which is what keeps an {@code
      * @} in a query parameter from being mistaken for one.
+     *
+     * <p>When there is no {@code @} anywhere, the text after that {@code :} is either a password
+     * whose delimiter was left out or simply a malformed port. Nothing in the URL tells the two
+     * apart, and only one of them is safe to print, so it is masked to the end of the authority.
+     * The reason still reports that the port was not a number; it just does not quote it.
      */
     private static int[] passwordSpan(String url) {
         int authority = url.indexOf("//");
@@ -181,7 +186,10 @@ public final class SQLErrors {
             end++;
         }
         String candidate = url.substring(authority, end);
-        int colon = candidate.indexOf(':');
+        // A bracketed IPv6 host is full of colons that are not a port separator, so start looking
+        // after the closing bracket.
+        int host = candidate.startsWith("[") ? candidate.indexOf(']') : -1;
+        int colon = candidate.indexOf(':', host + 1);
         if (colon < 0) {
             return null;
         }
@@ -191,7 +199,7 @@ public final class SQLErrors {
                 return null;
             }
             at = url.lastIndexOf('@');
-            return at < authority ? null : new int[] {authority + colon + 1, at};
+            return new int[] {authority + colon + 1, at < authority ? end : at};
         }
         if (colon > at) {
             // The only colon precedes the port, so the userinfo is a bare user name.

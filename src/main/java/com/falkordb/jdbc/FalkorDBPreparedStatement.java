@@ -27,9 +27,12 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 
 import com.falkordb.jdbc.internal.CypherQuery;
@@ -390,6 +393,31 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
     }
 
     private Object encode(Object value) throws SQLException {
+        return encode(value, null);
+    }
+
+    private static Set<Object> enter(Set<Object> active, Object container) throws SQLException {
+        Set<Object> descending = active == null ? Collections.newSetFromMap(new IdentityHashMap<>()) : active;
+        if (!descending.add(container)) {
+            throw new SQLException(
+                    "Cypher parameter of type " + container.getClass().getName()
+                            + " contains itself; FalkorDB values are trees, so a cycle cannot be sent",
+                    SQLErrors.STATE_INVALID_PARAMETER);
+        }
+        return descending;
+    }
+
+    /**
+     * Encodes one value, refusing a container that holds itself.
+     *
+     * <p>{@code active} holds the containers currently being descended through, compared by
+     * identity rather than by {@code equals} — a cyclic collection's {@code equals} and
+     * {@code hashCode} recurse for the same reason the encoding does. It is created only once a
+     * container is actually met, so encoding a scalar allocates nothing, and each container is
+     * removed on the way back out: the same list reached twice side by side is a shape FalkorDB can
+     * hold, and only a container reached from inside itself cannot be.
+     */
+    private Object encode(Object value, Set<Object> active) throws SQLException {
         // FalkorDB has no literal for NaN or an infinity, and JFalkorDB rejects them when it builds
         // the parameter prefix. Fail here, while the caller can still see which value was at fault,
         // rather than at execute time.
@@ -446,25 +474,32 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
             return value.toString();
         }
         if (value instanceof java.sql.Array array) {
-            Object raw = array.getArray();
-            return encode(raw);
+            Set<Object> descending = enter(active, value);
+            Object encoded = encode(array.getArray(), descending);
+            descending.remove(value);
+            return encoded;
         }
         if (value instanceof Collection<?> collection) {
+            Set<Object> descending = enter(active, value);
             List<Object> encoded = new ArrayList<>(collection.size());
             for (Object element : collection) {
-                encoded.add(encode(element));
+                encoded.add(encode(element, descending));
             }
+            descending.remove(value);
             return encoded;
         }
         if (value.getClass().isArray()) {
+            Set<Object> descending = enter(active, value);
             int length = java.lang.reflect.Array.getLength(value);
             List<Object> encoded = new ArrayList<>(length);
             for (int i = 0; i < length; i++) {
-                encoded.add(encode(java.lang.reflect.Array.get(value, i)));
+                encoded.add(encode(java.lang.reflect.Array.get(value, i), descending));
             }
+            descending.remove(value);
             return encoded;
         }
         if (value instanceof Map<?, ?> map) {
+            Set<Object> descending = enter(active, value);
             Map<String, Object> encoded = new LinkedHashMap<>();
             for (Map.Entry<?, ?> entry : map.entrySet()) {
                 if (!(entry.getKey() instanceof String key)) {
@@ -475,8 +510,9 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
                                             : entry.getKey().getClass().getName()),
                             SQLErrors.STATE_INVALID_PARAMETER);
                 }
-                encoded.put(key, encode(entry.getValue()));
+                encoded.put(key, encode(entry.getValue(), descending));
             }
+            descending.remove(value);
             return encoded;
         }
         throw new SQLException(

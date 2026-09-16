@@ -409,6 +409,50 @@ class PreparedStatementIT {
         }
 
         @Test
+        void refusesAContainerThatHoldsItself() throws SQLException {
+            List<Object> cycle = new java.util.ArrayList<>();
+            cycle.add("x");
+            cycle.add(cycle);
+
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
+                // Without a guard the encoder walks the cycle until the stack runs out, and a
+                // StackOverflowError is not something a caller can be asked to handle.
+                assertThatThrownBy(() -> statement.setObject(1, cycle))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("contains itself");
+            }
+        }
+
+        @Test
+        void refusesAMapThatHoldsItselfIndirectly() throws SQLException {
+            java.util.Map<String, Object> outer = new java.util.LinkedHashMap<>();
+            List<Object> inner = new java.util.ArrayList<>();
+            inner.add(outer);
+            outer.put("inner", inner);
+
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
+                assertThatThrownBy(() -> statement.setObject(1, outer))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("contains itself");
+            }
+        }
+
+        @Test
+        void bindsTheSameListTwiceInOneParameter() throws SQLException {
+            // Sharing a container is a tree, not a cycle, so the guard must let it through.
+            List<Long> shared = List.of(1L, 2L);
+
+            try (PreparedStatement statement = connection.prepareStatement("RETURN ?[0] AS value")) {
+                statement.setObject(1, List.of(shared, shared));
+
+                try (ResultSet results = statement.executeQuery()) {
+                    results.next();
+                    assertThat(readList(results, "value")).containsExactly(1L, 2L);
+                }
+            }
+        }
+
+        @Test
         void jdbcArraysAreBoundAsCypherArrays() throws SQLException {
             try (PreparedStatement statement = connection.prepareStatement("RETURN ? AS value")) {
                 statement.setArray(1, connection.createArrayOf("BIGINT", new Object[] {1L, 2L}));

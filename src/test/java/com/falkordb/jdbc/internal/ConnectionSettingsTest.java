@@ -396,6 +396,33 @@ class ConnectionSettingsTest {
         }
 
         @Test
+        void hidesAPasswordWhoseAtSignIsMissingAltogether() {
+            // Without an "@" the authority reads as host:port, so the password is reported as a
+            // malformed port. It is indistinguishable from a genuine typo, and only one of the two
+            // is safe to print.
+            String url = "jdbc:falkordb://alice:hunter2/social";
+
+            assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("port is not a number")
+                    .hasMessageNotContaining("hunter2");
+        }
+
+        @Test
+        void leavesABracketedIpv6HostAlone() {
+            String url = "jdbc:falkordb://[::1]:6379/social";
+
+            assertThat(SQLErrors.redact(url)).isEqualTo(url);
+        }
+
+        @Test
+        void leavesABracketedIpv6HostWithoutAPortAlone() {
+            String url = "jdbc:falkordb://[::1]/social";
+
+            assertThat(SQLErrors.redact(url)).isEqualTo(url);
+        }
+
+        @Test
         void leavesAnAtSignInAQueryParameterAlone() {
             String url = "jdbc:falkordb://localhost:6379/social?user=alice" + AT + "example.com";
 

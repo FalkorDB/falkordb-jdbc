@@ -1,0 +1,25 @@
+# Coverage is published for visibility only — it is NOT a merge gate. The functional
+# gate stays the CI build (`mvn verify`: unit tests, integration tests, format check).
+#
+# Why informational: coverage is measured by JaCoCo, which counts *source lines*, so a
+# mechanical reformat reflows statements across a different number of lines and moves
+# the percentage even when behaviour and tests are unchanged. The same happens when a
+# runner cannot start the Testcontainers-backed integration tests. Gating merges on that
+# number would produce false failures, so the Codecov statuses stay non-blocking while
+# the full report and the pull request comment are still published. Flip `informational`
+# to false to make coverage a hard gate again.
+#
+# Reports reach Codecov from CI: the build uploads JaCoCo's target/site/jacoco/jacoco.xml
+# with codecov/codecov-action, authenticated by the CODECOV_TOKEN repository secret.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true

@@ -249,7 +249,9 @@ public record ConnectionSettings(
         try {
             return new URI(withoutJdbc);
         } catch (URISyntaxException e) {
-            throw SQLErrors.invalidUrl(url, e.getReason() == null ? e.getMessage() : e.getReason());
+            // getMessage() appends the offending input, which would put the raw URL — password and
+            // all — into the reason, where it is no longer recognisable as a URL to redact.
+            throw SQLErrors.invalidUrl(url, e.getReason() == null ? "not a valid URI" : e.getReason());
         }
     }
 

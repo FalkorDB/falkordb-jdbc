@@ -362,6 +362,54 @@ class ConnectionSettingsTest {
         }
 
         @Test
+        void hidesAPasswordHoldingAnUnescapedQuestionMark() {
+            // An unescaped reserved character pushes the "@" past the authority, so the naive read
+            // of where the userinfo ends stops short and leaves the password in the message.
+            String url = "jdbc:falkordb://alice:hun?ter2" + AT + "localhost/social";
+
+            assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("***")
+                    .hasMessageNotContaining("ter2");
+        }
+
+        @Test
+        void hidesAPasswordHoldingAnUnescapedSlash() {
+            String url = "jdbc:falkordb://alice:hun/ter2" + AT + "localhost/social";
+
+            assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("***")
+                    .hasMessageNotContaining("ter2");
+        }
+
+        @Test
+        void stillSaysWhatWasWrongWhenTheUrlAlsoCarriesAPassword() {
+            // Only a quoted fragment that overlaps the password is masked; masking every quoted
+            // fragment would leave the caller with an error that names no cause.
+            String url = "jdbc:falkordb://alice:hunter2" + AT + "localhost/social?poolMaxTotal=xyz";
+
+            assertThatThrownBy(() -> ConnectionSettings.parse(url, null))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("poolMaxTotal must be an integer, but was \"xyz\"")
+                    .hasMessageNotContaining("hunter2");
+        }
+
+        @Test
+        void leavesAnAtSignInAQueryParameterAlone() {
+            String url = "jdbc:falkordb://localhost:6379/social?user=alice" + AT + "example.com";
+
+            assertThat(SQLErrors.redact(url)).isEqualTo(url);
+        }
+
+        @Test
+        void leavesAUserNameWithoutAPasswordAlone() {
+            String url = "jdbc:falkordb://alice" + AT + "localhost:6379/social";
+
+            assertThat(SQLErrors.redact(url)).isEqualTo(url);
+        }
+
+        @Test
         void leavesAUrlWithoutCredentialsAlone() {
             assertThat(SQLErrors.redact("jdbc:falkordb://localhost:6379/social"))
                     .isEqualTo("jdbc:falkordb://localhost:6379/social");

@@ -7,7 +7,6 @@ import java.sql.SQLNonTransientConnectionException;
 import java.sql.SQLSyntaxErrorException;
 import java.sql.SQLTimeoutException;
 import java.util.Locale;
-import java.util.regex.Pattern;
 
 import redis.clients.jedis.exceptions.JedisConnectionException;
 
@@ -152,17 +151,104 @@ public final class SQLErrors {
      */
     public static SQLException invalidUrl(String url, String reason) {
         return new SQLNonTransientConnectionException(
-                "Invalid FalkorDB JDBC URL " + (url == null ? "null" : '"' + redact(url) + '"') + ": " + reason,
+                "Invalid FalkorDB JDBC URL " + (url == null ? "null" : '"' + redact(url) + '"') + ": "
+                        + (url == null ? reason : maskQuotedSecrets(reason, url)),
                 STATE_CONNECTION_REJECTED);
     }
 
     /**
-     * Matches the password inside a URL's userinfo. The password group deliberately allows {@code
-     * @} and is greedy, so it runs to the <em>last</em> {@code @} of the authority — the same
-     * delimiter {@code ConnectionSettings} splits on. Stopping at the first {@code @} would leave
-     * the tail of a password like {@code p@ss} in the message.
+     * Masks the password inside a URL's userinfo.
+     *
+     * <p>The password runs from the first {@code :} of the authority to its <em>last</em> {@code @}
+     * — the same delimiter {@code ConnectionSettings} splits on — so a password like {@code p@ss}
+     * is masked whole rather than leaving its tail behind.
+     *
+     * <p>A password holding an unescaped {@code /}, {@code ?} or {@code #} pushes that {@code @}
+     * out of the authority, and such a URL is always rejected. Redaction cannot rely on a URL being
+     * well formed, so this is the case it has to get right: when the authority has a {@code :} whose
+     * right-hand side is not a port, the delimiter is looked for in the rest of the URL instead. A
+     * {@code :} that is a port separator means there is no userinfo, which is what keeps an {@code
+     * @} in a query parameter from being mistaken for one.
      */
-    private static final Pattern USERINFO_PASSWORD = Pattern.compile("(//[^/?#]*?:)([^/?#]*)(@)");
+    private static int[] passwordSpan(String url) {
+        int authority = url.indexOf("//");
+        if (authority < 0) {
+            return null;
+        }
+        authority += 2;
+        int end = authority;
+        while (end < url.length() && "/?#".indexOf(url.charAt(end)) < 0) {
+            end++;
+        }
+        String candidate = url.substring(authority, end);
+        int colon = candidate.indexOf(':');
+        if (colon < 0) {
+            return null;
+        }
+        int at = candidate.lastIndexOf('@');
+        if (at < 0) {
+            if (isPort(candidate.substring(candidate.lastIndexOf(':') + 1))) {
+                return null;
+            }
+            at = url.lastIndexOf('@');
+            return at < authority ? null : new int[] {authority + colon + 1, at};
+        }
+        if (colon > at) {
+            // The only colon precedes the port, so the userinfo is a bare user name.
+            return null;
+        }
+        return new int[] {authority + colon + 1, authority + at};
+    }
+
+    private static String maskUserInfo(String url) {
+        int[] password = passwordSpan(url);
+        return password == null ? url : url.substring(0, password[0]) + "***" + url.substring(password[1]);
+    }
+
+    /**
+     * Masks any quoted fragment of {@code reason} that was cut from the URL across its password.
+     *
+     * <p>A reason routinely quotes the text it objected to, and that text is a slice of the raw URL.
+     * When an unescaped delimiter inside a password makes the parser read part of it as something
+     * else — a query parameter name, say — the quoted slice carries the password with it, and
+     * redacting the URL alone would not stop it from reaching a log. Only a fragment that really
+     * does overlap the password is masked, so ordinary reasons keep saying what went wrong.
+     */
+    private static String maskQuotedSecrets(String reason, String url) {
+        int[] password = passwordSpan(url);
+        if (reason == null || password == null) {
+            return reason;
+        }
+        StringBuilder masked = new StringBuilder(reason.length());
+        int from = 0;
+        while (true) {
+            int open = reason.indexOf('"', from);
+            int close = open < 0 ? -1 : reason.indexOf('"', open + 1);
+            if (close < 0) {
+                return masked.append(reason, from, reason.length()).toString();
+            }
+            String quoted = reason.substring(open + 1, close);
+            int at = quoted.isEmpty() ? -1 : url.indexOf(quoted);
+            boolean secret = false;
+            while (at >= 0 && !secret) {
+                secret = at < password[1] && at + quoted.length() > password[0];
+                at = url.indexOf(quoted, at + 1);
+            }
+            masked.append(reason, from, open + 1)
+                    .append(secret ? "***" : quoted)
+                    .append('"');
+            from = close + 1;
+        }
+    }
+
+    private static boolean isPort(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (!Character.isDigit(text.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     /**
      * Replaces the password in a URL's userinfo and in any {@code password} query parameter with
@@ -175,7 +261,7 @@ public final class SQLErrors {
      * @return the URL with credentials masked
      */
     public static String redact(String url) {
-        String redacted = USERINFO_PASSWORD.matcher(url).replaceAll("$1***$3");
+        String redacted = maskUserInfo(url);
         int start = redacted.indexOf('?');
         if (start < 0) {
             return redacted;

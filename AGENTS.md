@@ -58,6 +58,8 @@ src/main/java/com/falkordb/jdbc/
 ├── FalkorDBResultSetMetaData.java   column labels, types, class names
 ├── FalkorDBDatabaseMetaData.java    graph introspection presented as JDBC metadata
 ├── FalkorDBArray.java               java.sql.Array over a Cypher list or vector
+├── FalkorDBRowSetFactory.java       javax.sql.rowset.RowSetFactory for the disconnected row sets
+├── FalkorDBSyncProvider.java        fills a row set from a Cypher query; refuses write-back
 ├── FalkorDBWrapper.java             shared unwrap/isWrapperFor
 └── internal/
     ├── ConnectionSettings.java      URL and property parsing; the settings record
@@ -99,6 +101,23 @@ driver, so a typo there is a mistake worth failing loudly on. A `Properties` obj
 shared with connection pools and BI tools that add their own unrelated keys — HikariCP's
 `dataSourceProperties` and DBeaver both do this — so rejecting unknown keys would break callers
 who did nothing wrong.
+
+**`FalkorDBSyncProvider`** is what lets a `RowSet` read a graph. The row sets themselves are the
+JDK's reference implementations; only the provider is ours, because the JDK's own decides whether a
+command is a query by looking for the word `select` in it and would run every Cypher query as an
+update. Four constraints in that reference implementation shape the provider, and none of them are
+obvious from the API:
+
+- `SyncFactory.getInstance` answers a lookup for an unregistered identifier with the default
+  provider instead of failing, so `FalkorDBRowSetFactory` registers the provider, installs it, and
+  then checks what the row set actually ended up with.
+- `WebRowSetXmlWriter` writes a provider's name by cutting its `toString()` at the `@` of the
+  default `Object` rendering, so the provider must not override `toString()`: `WebRowSet.writeXml`
+  throws `StringIndexOutOfBoundsException` if it does.
+- A row set serializes its provider, reader and writer in `createCopy()`, `createShared()` and
+  `JoinRowSet.addRowSet`, so all three are `Serializable`.
+- `CachedRowSetImpl.execute` casts the reader to the JDK's own `CachedRowSetReader` when a page size
+  is set, which no third-party provider can satisfy. That is why `setPageSize` is unsupported.
 
 ## Conventions
 
@@ -155,7 +174,7 @@ it to the pool.
 
 ## Out of scope for now
 
-SQL-to-Cypher translation, transactions beyond auto-commit, batch execution and `RowSet` support are
-deliberately absent, and the README lists them as future work. If you add one, update both the
-README's feature matrix and the unsupported-operation tests, so the documentation and the thrown
-exceptions cannot drift apart.
+SQL-to-Cypher translation, transactions beyond auto-commit and batch execution are deliberately
+absent, and the README lists them as future work. If you add one, update both the README's feature
+matrix and the unsupported-operation tests, so the documentation and the thrown exceptions cannot
+drift apart.

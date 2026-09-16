@@ -98,6 +98,10 @@ public final class FalkorDBRowSetFactory implements RowSetFactory {
     /**
      * {@inheritDoc}
      *
+     * <p>A {@link JoinRowSet} joins row sets that are already populated, so it never runs a command
+     * itself. The reference implementation rebuilds its internal row set as each one is added, which
+     * resets the provider: a joined row set reports the platform's own again.
+     *
      * @return a row set that joins other row sets in memory
      * @throws SQLException if the row set cannot be created or the provider cannot be installed
      */

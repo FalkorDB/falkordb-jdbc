@@ -115,6 +115,60 @@ try (ResultSet results = statement.executeQuery("MATCH (p:Person) RETURN p")) {
 }
 ```
 
+## Row sets
+
+`FalkorDBRowSetFactory` hands out the disconnected `javax.sql.RowSet` implementations, wired to
+`FalkorDBSyncProvider` so that a row set's command is run as a Cypher query:
+
+```java
+RowSetFactory factory = new FalkorDBRowSetFactory();
+
+CachedRowSet rowSet = factory.createCachedRowSet();
+rowSet.setUrl("jdbc:falkordb://localhost:6379/social");
+rowSet.setCommand("MATCH (p:Person) WHERE p.age > ? RETURN p.name AS name");
+rowSet.setInt(1, 30);
+rowSet.execute();              // or execute(connection), which leaves the connection open
+
+while (rowSet.next()) {
+    System.out.println(rowSet.getString("name"));
+}
+```
+
+A row set can equally snapshot a result the driver has already produced, with
+`populate(ResultSet)`; that needs no URL or command, and the rows outlive the connection they came
+from.
+
+| Row set | Notes |
+| --- | --- |
+| `CachedRowSet` | Scrollable, disconnected copy of a query's rows |
+| `WebRowSet` | A `CachedRowSet` that reads and writes itself as XML |
+| `FilteredRowSet` | A `CachedRowSet` narrowed by an in-memory `Predicate` |
+| `JoinRowSet` | Joins row sets in memory; the reference implementation decides the row order |
+| `JdbcRowSet` | **Not supported** — it stays connected and needs a scrollable, updatable `ResultSet` |
+
+The JDK's own provider decides whether a command is a query by looking for the word `select` in it,
+which no Cypher statement contains, so a row set that kept it would run every graph query as an
+update and come back empty. `FalkorDBRowSetFactory` installs `FalkorDBSyncProvider` instead, and
+verifies afterwards that it took — `SyncFactory` answers a lookup for an unregistered provider with
+the default one rather than failing. A row set obtained elsewhere can be wired up by hand:
+
+```java
+SyncFactory.registerProvider(FalkorDBSyncProvider.ID);
+rowSet.setSyncProvider(FalkorDBSyncProvider.ID);
+```
+
+Four limitations are worth knowing:
+
+- **Row sets are read-only.** Write-back builds `UPDATE`, `INSERT` and `DELETE` statements against
+  the table a column came from, and a Cypher projection belongs to no table, so `acceptChanges()`
+  throws a `SyncProviderException` instead of appearing to save. Edits stay in memory; change the
+  graph with a Cypher statement.
+- **The command must be a read query.** A row set is populated from rows, so a command that returns
+  none fails the same way `Statement.executeQuery` does on a write.
+- **`setPageSize` is not supported.** Paging reaches past the provider into the JDK's own reader.
+- **Temporal columns are cached as `java.time` values**, the ones `ResultSet.getObject` returns, so
+  read them with `getObject` rather than `getDate`, `getTime` or `getTimestamp`.
+
 ## Connection URL
 
 ```
@@ -235,6 +289,7 @@ offers. The driver converts where it can and is explicit about what that costs:
 | `DatabaseMetaData` | product/driver identity, catalogs, labels as tables, relationship types, columns, indexes, procedures, type info |
 | `ParameterMetaData` | parameter count |
 | `java.sql.Array` | for Cypher lists and vectors, with `getResultSet()` and slicing |
+| `RowSet` | disconnected `CachedRowSet`, `WebRowSet`, `FilteredRowSet` and `JoinRowSet`, via `FalkorDBRowSetFactory` |
 | Query timeouts | `Statement.setQueryTimeout` maps to FalkorDB's server-side timeout |
 | Read-only connections | `setReadOnly(true)` routes through the read-only path |
 | Connection pooling knobs | `poolMaxTotal`, `poolMaxIdle`, `poolMaxWait` |
@@ -250,6 +305,7 @@ Each of these throws `SQLFeatureNotSupportedException` — the driver never sile
 | Transactions, savepoints, isolation levels | Auto-commit is permanently on; FalkorDB executes each query atomically on its own. `getTransactionIsolation()` reports `TRANSACTION_NONE` |
 | Batch execution | `addBatch`/`executeBatch` |
 | Scrollable and updatable result sets | Results are forward-only and read-only |
+| `JdbcRowSet` | A connected row set needs a scrollable, updatable `ResultSet`; use a `CachedRowSet`. See [Row sets](#row-sets) |
 | Generated keys | Cypher `RETURN`s what it creates instead |
 | `CallableStatement` | Call procedures with Cypher's `CALL` |
 | LOBs, `SQLXML`, `RowId`, `Ref`, streams | No FalkorDB equivalent |
@@ -280,7 +336,6 @@ element that type cannot hold, so `getBaseType()` and `getArray()` always agree.
   without being rewritten.
 - **Transactions** beyond auto-commit, tracking what FalkorDB itself supports.
 - **Batch execution** for `addBatch`/`executeBatch`.
-- **`RowSet`** implementations.
 
 ## Building
 

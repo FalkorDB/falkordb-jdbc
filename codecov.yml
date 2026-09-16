@@ -9,8 +9,9 @@
 # the full report and the pull request comment are still published. Flip `informational`
 # to false to make coverage a hard gate again.
 #
-# Reports reach Codecov from CI: the build uploads JaCoCo's target/site/jacoco/jacoco.xml
-# with codecov/codecov-action, authenticated by the CODECOV_TOKEN repository secret.
+# Reports reach Codecov from the CI verify job on Java 17: JaCoCo writes
+# target/site/jacoco/jacoco.xml covering the unit and integration tests together, and
+# codecov/codecov-action uploads it using the CODECOV_TOKEN repository secret.
 coverage:
   status:
     project:

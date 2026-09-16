@@ -1740,9 +1740,16 @@ public final class FalkorDBDatabaseMetaData extends FalkorDBWrapper implements D
         return Connection.TRANSACTION_NONE;
     }
 
+    /**
+     * Batch updates are supported, but not atomically: FalkorDB has no client-side transaction, so a
+     * batch is sent statement by statement and stops at the first failure with the earlier
+     * statements already committed.
+     *
+     * @return {@code true}
+     */
     @Override
     public boolean supportsBatchUpdates() {
-        return false;
+        return true;
     }
 
     @Override

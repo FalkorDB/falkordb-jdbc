@@ -154,15 +154,7 @@ class PreparedStatementIT {
             try (PreparedStatement statement = connection.prepareStatement("RETURN 1")) {
                 assertThatThrownBy(() -> statement.executeQuery("RETURN 2")).isInstanceOf(SQLException.class);
                 assertThatThrownBy(() -> statement.executeUpdate("CREATE (:X)")).isInstanceOf(SQLException.class);
-            }
-        }
-
-        @Test
-        void refuseBatchExecution() throws SQLException {
-            try (PreparedStatement statement = connection.prepareStatement("CREATE (:Batched {n: ?})")) {
-                statement.setInt(1, 1);
-
-                assertThatThrownBy(statement::addBatch).isInstanceOf(SQLFeatureNotSupportedException.class);
+                assertThatThrownBy(() -> statement.addBatch("CREATE (:X)")).isInstanceOf(SQLException.class);
             }
         }
     }

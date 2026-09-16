@@ -269,13 +269,6 @@ class StatementIT {
         }
 
         @Test
-        void refusesBatchExecution() {
-            assertThatThrownBy(() -> statement.addBatch("CREATE (:Batched)"))
-                    .isInstanceOf(SQLFeatureNotSupportedException.class);
-            assertThatThrownBy(() -> statement.executeBatch()).isInstanceOf(SQLFeatureNotSupportedException.class);
-        }
-
-        @Test
         void refusesToCancel() {
             assertThatThrownBy(() -> statement.cancel()).isInstanceOf(SQLFeatureNotSupportedException.class);
         }

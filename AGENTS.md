@@ -155,7 +155,7 @@ it to the pool.
 
 ## Out of scope for now
 
-SQL-to-Cypher translation, transactions beyond auto-commit, batch execution and `RowSet` support are
+SQL-to-Cypher translation, transactions beyond auto-commit and `RowSet` support are
 deliberately absent, and the README lists them as future work. If you add one, update both the
 README's feature matrix and the unsupported-operation tests, so the documentation and the thrown
 exceptions cannot drift apart.

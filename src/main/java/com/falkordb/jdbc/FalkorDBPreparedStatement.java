@@ -580,12 +580,26 @@ public final class FalkorDBPreparedStatement extends FalkorDBStatement implement
         return "FalkorDBPreparedStatement[" + query.cypher() + "]";
     }
 
-    // ---------------------------------------------------------------- unsupported
+    // ---------------------------------------------------------------- batching
 
+    /**
+     * Queues the current parameter bindings as one entry of this statement's batch.
+     *
+     * <p>The bindings are copied, not referenced: JDBC leaves them in place afterwards so the caller
+     * can rebind for the next entry, and that must not change what is already queued. {@link
+     * #clearParameters()} likewise does not touch the queue.
+     *
+     * @throws SQLException if the statement is closed or a placeholder has no value bound
+     */
     @Override
     public void addBatch() throws SQLException {
-        throw SQLErrors.unsupported("Batch execution");
+        checkOpen();
+        // A LinkedHashMap rather than Map.copyOf: a parameter bound to SQL NULL is a null value,
+        // which Map.copyOf rejects.
+        enqueue(query, Collections.unmodifiableMap(new LinkedHashMap<>(bindings())));
     }
+
+    // ---------------------------------------------------------------- unsupported
 
     @Override
     public void setRef(int parameterIndex, java.sql.Ref x) throws SQLException {

@@ -230,6 +230,7 @@ offers. The driver converts where it can and is explicit about what that costs:
 | `DriverManager` auto-registration | via `META-INF/services` |
 | `Statement` | `executeQuery`, `executeUpdate`, `execute`, `getResultSet`, `getUpdateCount` |
 | `PreparedStatement` | positional `?` and native `$name` parameters |
+| Batch execution | `addBatch`/`executeBatch` on both `Statement` and `PreparedStatement`, non-atomic — see below |
 | `ResultSet` | forward-only, read-only, by-index and by-label access |
 | `ResultSetMetaData` | column count, labels, types, class names |
 | `DatabaseMetaData` | product/driver identity, catalogs, labels as tables, relationship types, columns, indexes, procedures, type info |
@@ -248,7 +249,6 @@ Each of these throws `SQLFeatureNotSupportedException` — the driver never sile
 | Feature | Why |
 | --- | --- |
 | Transactions, savepoints, isolation levels | Auto-commit is permanently on; FalkorDB executes each query atomically on its own. `getTransactionIsolation()` reports `TRANSACTION_NONE` |
-| Batch execution | `addBatch`/`executeBatch` |
 | Scrollable and updatable result sets | Results are forward-only and read-only |
 | Generated keys | Cypher `RETURN`s what it creates instead |
 | `CallableStatement` | Call procedures with Cypher's `CALL` |
@@ -258,6 +258,40 @@ Each of these throws `SQLFeatureNotSupportedException` — the driver never sile
 
 `setMaxRows` is accepted but cannot be enforced — FalkorDB materialises a whole response before the
 driver sees it — so it raises a `SQLWarning` and leaves the rows intact. Use a Cypher `LIMIT`.
+
+### Batch execution
+
+`addBatch`/`executeBatch` queue statements and send them one after another. There is no single
+round trip and, because FalkorDB has no client-side transaction, **a batch is not atomic**:
+
+- Each queued statement takes effect as it runs.
+- Execution stops at the first failure. The `BatchUpdateException` carries the update counts of the
+  statements that already succeeded, and those are committed — nothing is rolled back.
+- A queued statement that returns rows is a failure, as JDBC requires, since a batch has no result
+  set to return it through. It has still run by the time that is discovered.
+- The queue is emptied whether or not every statement succeeded, so retrying after a failure does
+  not re-send what already took effect.
+
+`PreparedStatement.addBatch()` copies the bindings as they are at that moment, so rebinding for the
+next entry — or calling `clearParameters()` — does not change what is already queued.
+
+```java
+try (PreparedStatement ps = connection.prepareStatement("CREATE (:Person {name: $p1, age: $p2})")) {
+    ps.setString(1, "Alice");
+    ps.setInt(2, 30);
+    ps.addBatch();
+    ps.setString(1, "Bob");
+    ps.setInt(2, 41);
+    ps.addBatch();
+    int[] counts = ps.executeBatch(); // { 3, 3 } — one node and two properties each
+}
+```
+
+To write many rows in a single round trip that *is* atomic, pass a list parameter and `UNWIND` it:
+
+```java
+ps = connection.prepareStatement("UNWIND $p1 AS row CREATE (:Person {name: row.name, age: row.age})");
+```
 
 The `supports*` flags on `DatabaseMetaData` that describe **SQL grammar** all report `false`,
 including `supportsColumnAliasing` and `supportsTableCorrelationNames`. Cypher spells aliasing and
@@ -279,7 +313,6 @@ element that type cannot hold, so `getBaseType()` and `getArray()` always agree.
 - **SQL-to-Cypher translation** (`enableSQLTranslation`), so existing SQL tooling can query a graph
   without being rewritten.
 - **Transactions** beyond auto-commit, tracking what FalkorDB itself supports.
-- **Batch execution** for `addBatch`/`executeBatch`.
 - **`RowSet`** implementations.
 
 ## Building

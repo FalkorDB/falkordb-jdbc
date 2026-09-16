@@ -1,9 +1,12 @@
 package com.falkordb.jdbc;
 
+import java.sql.BatchUpdateException;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -26,6 +29,10 @@ import com.falkordb.jdbc.internal.SQLErrors;
  * <p>Following the JDBC contract, {@link #executeQuery(String)} rejects a statement that returned no
  * columns and {@link #executeUpdate(String)} rejects one that did, so neither silently discards part
  * of the response. Use {@link #execute(String)} when a statement may do either.
+ *
+ * <p>{@link #addBatch(String)} and {@link #executeBatch()} queue writes and send them one after
+ * another. FalkorDB has no client-side transaction, so a batch is a convenience rather than a unit
+ * of work: see {@link #executeLargeBatch()} for exactly what that costs.
  */
 public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
 
@@ -52,6 +59,12 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
     private final Set<FalkorDBResultSet> dependents = Collections.newSetFromMap(new IdentityHashMap<>());
 
     private final Object dependentsLock = new Object();
+
+    /**
+     * Statements queued by {@code addBatch}, in the order they were queued. Not synchronised, for
+     * the reason the parameter map is not: a {@code Statement} is owned by one thread at a time.
+     */
+    private final List<BatchEntry> batch = new ArrayList<>();
 
     private long updateCount = NO_UPDATE_COUNT;
     // In milliseconds, the unit FalkorDB takes and the unit the queryTimeout property is
@@ -124,17 +137,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         resultSet = null;
         updateCount = NO_UPDATE_COUNT;
 
-        Graph graph = connection.graph();
-        String cypher = query.cypher();
-        long timeout = timeoutMillis();
-        boolean readOnly = connection.isReadOnly();
-
-        com.falkordb.ResultSet response;
-        try {
-            response = send(graph, cypher, parameters, timeout, readOnly);
-        } catch (RuntimeException e) {
-            throw SQLErrors.translate("Failed to execute Cypher statement", e);
-        }
+        com.falkordb.ResultSet response = submit(query, parameters);
 
         if (response.getHeader().getSchemaNames().isEmpty()) {
             updateCount = updateCountOf(response.getStatistics());
@@ -150,6 +153,23 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
                 dependents.add(rows);
             }
             resultSet = rows;
+        }
+    }
+
+    /**
+     * Sends one statement to FalkorDB and hands back the raw response, leaving this statement's
+     * current result set and update count untouched. Batch execution needs the response without the
+     * bookkeeping, since a batch reports its own counts and exposes no result set.
+     */
+    private com.falkordb.ResultSet submit(CypherQuery query, Map<String, Object> parameters) throws SQLException {
+        Graph graph = connection.graph();
+        String cypher = query.cypher();
+        long timeout = timeoutMillis();
+        boolean readOnly = connection.isReadOnly();
+        try {
+            return send(graph, cypher, parameters, timeout, readOnly);
+        } catch (RuntimeException e) {
+            throw SQLErrors.translate("Failed to execute Cypher statement", e);
         }
     }
 
@@ -523,6 +543,7 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
             dependent.close();
         }
         resultSet = null;
+        batch.clear();
         connection.forget(this);
     }
 
@@ -588,25 +609,149 @@ public class FalkorDBStatement extends FalkorDBWrapper implements Statement {
         throw SQLErrors.unsupported("execute(String, String[])");
     }
 
+    /**
+     * Queues a statement to be sent by {@link #executeBatch()}.
+     *
+     * @param sql the Cypher statement to queue
+     * @throws SQLException if the statement is closed or {@code sql} is {@code null}
+     */
     @Override
     public void addBatch(String sql) throws SQLException {
-        throw SQLErrors.unsupported("Batch execution");
+        checkOpen();
+        if (sql == null) {
+            throw new SQLException("Batched statement text must not be null", SQLErrors.STATE_INVALID_PARAMETER);
+        }
+        enqueue(CypherQuery.literal(sql), Map.of());
+    }
+
+    /**
+     * Adds an already-translated statement and its bindings to the batch. Package-private so {@link
+     * FalkorDBPreparedStatement} can queue a snapshot of its own parameters without exposing the
+     * queue itself.
+     *
+     * @param query the translated statement
+     * @param parameters the bindings to send with it, which the caller must not mutate afterwards
+     */
+    final void enqueue(CypherQuery query, Map<String, Object> parameters) {
+        batch.add(new BatchEntry(query, parameters));
     }
 
     @Override
     public void clearBatch() throws SQLException {
-        throw SQLErrors.unsupported("Batch execution");
+        checkOpen();
+        batch.clear();
     }
 
+    /**
+     * Runs the queued statements in order and reports how many entities each one affected.
+     *
+     * <p>A count that exceeds {@code Integer.MAX_VALUE} is clamped to it, exactly as {@link
+     * #executeUpdate(String)} clamps; use {@link #executeLargeBatch()} to read it exactly.
+     *
+     * @return one update count per queued statement, in the order they were queued
+     * @throws BatchUpdateException if a statement fails or returns a result set, carrying the counts
+     *     of the statements that ran before it
+     * @throws SQLException if the statement is closed
+     */
     @Override
     public int[] executeBatch() throws SQLException {
-        throw SQLErrors.unsupported("Batch execution");
+        try {
+            return narrow(executeLargeBatch());
+        } catch (BatchUpdateException e) {
+            long[] counts = e.getLargeUpdateCounts();
+            throw new BatchUpdateException(
+                    e.getMessage(),
+                    e.getSQLState(),
+                    e.getErrorCode(),
+                    narrow(counts == null ? new long[0] : counts),
+                    e.getCause());
+        }
     }
 
+    /**
+     * Runs the queued statements in order and reports how many entities each one affected.
+     *
+     * <p>FalkorDB has no client-side transaction, so a batch is not atomic: the statements are sent
+     * one after another and each takes effect as it runs. Execution therefore <em>stops</em> at the
+     * first failure — continuing would keep writing after the caller's intent is already in doubt —
+     * and the {@link BatchUpdateException} carries the counts of the statements that had already
+     * succeeded, which by then are committed and will not be undone.
+     *
+     * <p>A queued statement that returns rows is a failure, as JDBC requires: a batch has no result
+     * set to hand it back through. Note that such a statement has still run by the time this is
+     * discovered, for the same lack of a transaction.
+     *
+     * <p>The queue is emptied whether or not every statement succeeded, so a retry after a failure
+     * does not re-send the ones that already took effect.
+     *
+     * @return one update count per queued statement, in the order they were queued
+     * @throws BatchUpdateException if a statement fails or returns a result set, carrying the counts
+     *     of the statements that ran before it
+     * @throws SQLException if the statement is closed
+     */
     @Override
     public long[] executeLargeBatch() throws SQLException {
-        throw SQLErrors.unsupported("Batch execution");
+        checkOpen();
+        // JDBC leaves the current result set and update count undefined after a batch. Clear them,
+        // so whatever the previous execution left behind cannot be read back as this batch's
+        // outcome.
+        closeCurrentResultSet();
+        checkOpen();
+        resultSet = null;
+        updateCount = NO_UPDATE_COUNT;
+
+        List<BatchEntry> entries = List.copyOf(batch);
+        batch.clear();
+
+        long[] counts = new long[entries.size()];
+        for (int i = 0; i < entries.size(); i++) {
+            BatchEntry entry = entries.get(i);
+            com.falkordb.ResultSet response;
+            try {
+                response = submit(entry.query(), entry.parameters());
+            } catch (SQLException e) {
+                throw batchFailed(
+                        position(i, entries.size()) + " failed: " + e.getMessage(), e, Arrays.copyOf(counts, i));
+            }
+            if (!response.getHeader().getSchemaNames().isEmpty()) {
+                throw batchFailed(
+                        position(i, entries.size())
+                                + " returned a result set, which a batch has no way to hand back; execute a statement"
+                                + " that returns rows on its own. It has already run: FalkorDB has no transaction to"
+                                + " roll it back",
+                        null,
+                        Arrays.copyOf(counts, i));
+            }
+            counts[i] = updateCountOf(response.getStatistics());
+        }
+        return counts;
     }
+
+    private static String position(int index, int size) {
+        return "Batch entry " + (index + 1) + " of " + size;
+    }
+
+    private static BatchUpdateException batchFailed(String reason, SQLException cause, long[] counts) {
+        String state = cause == null || cause.getSQLState() == null ? SQLErrors.STATE_GENERAL : cause.getSQLState();
+        return new BatchUpdateException(reason, state, cause == null ? 0 : cause.getErrorCode(), counts, cause);
+    }
+
+    private static int[] narrow(long[] counts) {
+        int[] narrowed = new int[counts.length];
+        for (int i = 0; i < counts.length; i++) {
+            narrowed[i] = counts[i] > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) counts[i];
+        }
+        return narrowed;
+    }
+
+    /**
+     * One queued statement and the bindings it was queued with.
+     *
+     * <p>The bindings are captured when the entry is queued rather than read at execution time,
+     * because JDBC leaves a {@code PreparedStatement}'s parameters in place after {@code addBatch()}
+     * so the caller can rebind them for the next entry.
+     */
+    private record BatchEntry(CypherQuery query, Map<String, Object> parameters) {}
 
     /** The graph this statement runs against, reported as the JDBC catalog of its result sets. */
     String catalogName() {
